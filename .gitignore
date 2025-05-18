@@ -1,0 +1,33 @@
+# Ignore compiled binary files
+*.exe
+*.out
+*.o
+*.obj
+
+# Ignore VS Code workspace settings (optional)
+.vscode/
+
+# Ignore system files
+.DS_Store
+Thumbs.db
+
+# Ignore build directories
+/build/
+/dist/
+/bin/
+/lib/
+
+# Ignore temporary files
+*.log
+*.tmp
+*.swp
+*.swo
+*.bak
+
+# Ignore CMake and Makefile-generated files
+CMakeCache.txt
+CMakeFiles/
+Makefile
+
+# utils
+utils/
