@@ -15,6 +15,9 @@ enum class TokenType {
     DEFINE, FUNCTION, CALL, RETURN, THROW,
     END, INCREASE, BY, WITH,
     CREATE, MODEL, TRY, CATCH, OPEN, FILE,
+    BLOCK,
+    INTEGER,
+    LONG,
     NEWLINE, INDENT, DEDENT,
 
     // Literals
@@ -22,15 +25,17 @@ enum class TokenType {
 
     // Operators
     PLUS, MINUS, STAR, SLASH, EQUAL, GREATER, LESS,
-    UNDERSCORE,
+    UNDERSCORE,GREATER_EQUAL,LESS_EQUAL,NOT_EQUAL,EQUAL_EQUAL,
 
     // Punctuation
     LEFT_PAREN, RIGHT_PAREN,
     LEFT_BRACE, RIGHT_BRACE,
     LEFT_BRACKET, RIGHT_BRACKET,
     SEMICOLON, COMMA,
+    COLON,
 
     // Special
+    NONE,
     UNKNOWN, END_OF_FILE
 };
 
@@ -81,6 +86,9 @@ inline std::string tokenTypeToString(TokenType type) {
         case TokenType::CATCH: return "CATCH";
         case TokenType::OPEN: return "OPEN";
         case TokenType::FILE: return "FILE";
+        case TokenType::BLOCK: return "BLOCK";
+        case TokenType::INTEGER: return "INTEGER";
+        case TokenType::LONG: return "LONG";
         case TokenType::NEWLINE: return "NEWLINE";
         case TokenType::INDENT: return "INDENT";
         case TokenType::DEDENT: return "DEDENT";
@@ -97,6 +105,10 @@ inline std::string tokenTypeToString(TokenType type) {
         case TokenType::SLASH: return "SLASH";
         case TokenType::EQUAL: return "EQUAL";
         case TokenType::GREATER: return "GREATER";
+        case TokenType::GREATER_EQUAL: return "GREATER_EQUAL";
+        case TokenType::LESS_EQUAL: return "LESS_EQUAL";
+        case TokenType::NOT_EQUAL: return "NOT_EQUAL";
+        case TokenType::EQUAL_EQUAL: return "EQUAL_EQUAL";
         case TokenType::LESS: return "LESS";
         case TokenType::UNDERSCORE: return "UNDERSCORE";
 
@@ -109,8 +121,10 @@ inline std::string tokenTypeToString(TokenType type) {
         case TokenType::RIGHT_BRACKET: return "RIGHT_BRACKET";
         case TokenType::SEMICOLON: return "SEMICOLON";
         case TokenType::COMMA: return "COMMA";
+        case TokenType::COLON: return "COLON";
 
         // Special
+        case TokenType::NONE: return "NONE";
         case TokenType::UNKNOWN: return "UNKNOWN";
         case TokenType::END_OF_FILE: return "END_OF_FILE";
 

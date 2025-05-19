@@ -1,2 +1,7 @@
-let x be "dsfsf"
-set y as 10000
+
+match x
+    case 42 then
+        say "The answer"
+    case _ then
+        say "Not the answer"
+end

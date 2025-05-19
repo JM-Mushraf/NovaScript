@@ -1,13 +1,10 @@
-#include "../include/Lexer.h"
+#include "Lexer.h"
 #include <cctype>
 #include <unordered_map>
 #include <iostream>
 
 namespace MyCustomLang {
 
-static const int MAX_TOKEN_LENGTH = 256;
-
-// Mapping of keywords to their TokenType
 static const std::unordered_map<std::string, TokenType> keywords = {
     {"let", TokenType::LET},
     {"set", TokenType::SET},
@@ -43,10 +40,12 @@ static const std::unordered_map<std::string, TokenType> keywords = {
     {"try", TokenType::TRY},
     {"catch", TokenType::CATCH},
     {"open", TokenType::OPEN},
-    {"file", TokenType::FILE}
+    {"file", TokenType::FILE},
+    {"block", TokenType::BLOCK},
+    {"Integer", TokenType::INTEGER},
+    {"long", TokenType::LONG}
 };
 
-// Single-character tokens: operators and punctuation
 static const std::unordered_map<char, TokenType> singleCharTokens = {
     {'+', TokenType::PLUS},
     {'-', TokenType::MINUS},
@@ -60,11 +59,12 @@ static const std::unordered_map<char, TokenType> singleCharTokens = {
     {'[', TokenType::LEFT_BRACKET},
     {']', TokenType::RIGHT_BRACKET},
     {';', TokenType::SEMICOLON},
-    {',', TokenType::COMMA}
+    {',', TokenType::COMMA},
+    {':', TokenType::COLON}
 };
 
-Lexer::Lexer(std::string src) 
-    : source(std::move(src)), current(0), line(1), indent_level(0) {
+Lexer::Lexer(const std::string& source)
+    : source(source), current(0), line(1), indent_level(0), pendingDedents(0) {
     indent_stack.push_back(0);
 }
 
@@ -96,111 +96,6 @@ bool Lexer::isAlphaNumeric(char c) const {
     return isAlpha(c) || isDigit(c);
 }
 
-Token Lexer::getNextToken() {
-    while (!isAtEnd()) {
-        char c = advance();
-
-        // Handle whitespace (outside indentation)
-        if (c == ' ' || c == '\t') continue;
-
-        // Handle newlines and indentation
-        if (c == '\n') {
-            line++;
-            size_t temp_current = current;
-            int spaces = 0;
-            while (!isAtEnd() && (peek() == ' ' || peek() == '\t')) {
-                char ws = advance();
-                spaces += (ws == '\t' ? 4 : 1);
-            }
-            // Emit NEWLINE for the previous line
-            if (!isAtEnd() && peek() != '\n' && peek() != '#') {
-                int current_indent = indent_stack.back();
-                if (spaces > current_indent) {
-                    indent_stack.push_back(spaces);
-                    indent_level++;
-                    return Token(TokenType::INDENT, "", line);
-                } else if (spaces < current_indent) {
-                    indent_stack.pop_back();
-                    if (spaces != indent_stack.back()) {
-                        std::cerr << "Indentation error at line " << line << ": expected " 
-                                  << indent_stack.back() << " spaces, got " << spaces << std::endl;
-                        return Token(TokenType::UNKNOWN, "", line);
-                    }
-                    return Token(TokenType::DEDENT, "", line);
-                }
-            }
-            current = temp_current;
-            return Token(TokenType::NEWLINE, "", line - 1);
-        }
-
-        // Handle comments
-        if (c == '#') {
-            while (!isAtEnd() && peek() != '\n') advance();
-            continue;
-        }
-        if (c == '/' && peek() == '/') {
-            while (!isAtEnd() && peek() != '\n') advance();
-            continue;
-        }
-        if (c == '/' && peek() == '*') {
-            advance(); // Consume '*'
-            while (!isAtEnd()) {
-                if (peek() == '*' && peekNext() == '/') {
-                    advance(); // Consume '*'
-                    advance(); // Consume '/'
-                    break;
-                }
-                if (peek() == '\n') line++;
-                advance();
-            }
-            if (isAtEnd()) {
-                std::cerr << "Unterminated multi-line comment at line " << line << std::endl;
-                return Token(TokenType::UNKNOWN, "", line);
-            }
-            continue;
-        }
-
-        // Operators and punctuation
-        if (c == '<') return Token(TokenType::LESS, "<", line);
-        if (c == '>') return Token(TokenType::GREATER, ">", line);
-        if (c == '_') return Token(TokenType::UNDERSCORE, "_", line);
-
-        auto op = singleCharTokens.find(c);
-        if (op != singleCharTokens.end()) {
-            return Token(op->second, std::string(1, c), line);
-        }
-
-        // Identifiers and keywords
-        if (isAlpha(c)) {
-            current--; // Backtrack to read full identifier
-            return identifier();
-        }
-
-        // Numbers
-        if (isDigit(c)) {
-            current--; // Backtrack to read full number
-            return number();
-        }
-
-        // Strings
-        if (c == '"') {
-            return stringLiteral();
-        }
-
-        // Unknown character
-        std::cerr << "Unknown character '" << c << "' at line " << line << std::endl;
-        return Token(TokenType::UNKNOWN, std::string(1, c), line);
-    }
-
-    // Emit DEDENT tokens to close all open indentation levels at EOF
-    if (indent_stack.size() > 1) {
-        indent_stack.pop_back();
-        return Token(TokenType::DEDENT, "", line);
-    }
-
-    return Token(TokenType::END_OF_FILE, "", line);
-}
-
 Token Lexer::identifier() {
     std::string value;
     while (isAlphaNumeric(peek())) {
@@ -225,9 +120,13 @@ Token Lexer::number() {
     while (isDigit(peek()) || peek() == '.') {
         char c = peek();
         if (c == '.') {
-            if (hasDecimal) break; // Only one decimal point
+            if (hasDecimal) break;
             hasDecimal = true;
         }
+        value += advance();
+    }
+
+    if (peek() == 'L') {
         value += advance();
     }
 
@@ -235,9 +134,11 @@ Token Lexer::number() {
 }
 
 Token Lexer::stringLiteral() {
+    char quote = advance();
     std::string value;
-    size_t start_line = line;
-    while (!isAtEnd() && peek() != '"') {
+    int start_line = line;
+
+    while (!isAtEnd() && peek() != quote) {
         if (peek() == '\n') line++;
         value += advance();
     }
@@ -247,8 +148,145 @@ Token Lexer::stringLiteral() {
         return Token(TokenType::UNKNOWN, value, line);
     }
 
-    advance(); // Consume closing quote
+    advance();
     return Token(TokenType::STRING, value, line);
+}
+
+Token Lexer::getNextToken() {
+    // Skip whitespace (spaces, tabs, carriage returns)
+    while (!isAtEnd()) {
+        char c = peek();
+        if (c == ' ' || c == '\t' || c == '\r') {
+            advance();
+        } else {
+            break;
+        }
+    }
+
+    // Handle pending dedents
+    if (pendingDedents > 0) {
+        pendingDedents--;
+        indent_stack.pop_back();
+        indent_level--;
+        return Token(TokenType::DEDENT, "", line);
+    }
+
+    if (isAtEnd()) {
+        // Only emit dedents if stack has unclosed levels
+        if (indent_stack.size() > 1 && indent_stack.back() != 0) {
+            indent_stack.pop_back();
+            indent_level--;
+            return Token(TokenType::DEDENT, "", line);
+        }
+        return Token(TokenType::END_OF_FILE, "", line);
+    }
+
+    char c = peek();
+
+    // Handle newlines and indentation
+    if (c == '\n') {
+        advance();
+        line++;
+        // Skip whitespace after newline to check indentation
+        size_t new_indent = current;
+        while (peek() == ' ' || peek() == '\t') {
+            advance();
+        }
+        int indent_count = static_cast<int>(current - new_indent);
+
+        // Skip empty lines or lines with only comments
+        if (peek() == '\n' || peek() == '#' || isAtEnd()) {
+            if (peek() == '#') {
+                while (!isAtEnd() && peek() != '\n') {
+                    advance();
+                }
+            }
+            return getNextToken();
+        }
+
+        // Handle indentation
+        if (indent_count > indent_stack.back()) {
+            indent_stack.push_back(indent_count);
+            indent_level++;
+            return Token(TokenType::INDENT, "", line);
+        } else if (indent_count < indent_stack.back()) {
+            // Pop stack until indent_count matches or is greater
+            while (!indent_stack.empty() && indent_count < indent_stack.back()) {
+                indent_stack.pop_back();
+                indent_level--;
+                return Token(TokenType::DEDENT, "", line);
+            }
+            // If indent_count matches an earlier level, no dedent needed
+            if (!indent_stack.empty() && indent_count == indent_stack.back()) {
+                return getNextToken();
+            }
+            // Invalid indentation
+            std::cerr << "Invalid indentation at line " << line << std::endl;
+            return Token(TokenType::UNKNOWN, "", line);
+        }
+        return getNextToken();
+    }
+
+    // Handle comments
+    if (c == '#') {
+        while (!isAtEnd() && peek() != '\n') {
+            advance();
+        }
+        return getNextToken();
+    }
+
+    // Handle strings
+    if (c == '"' || c == '\'') {
+        return stringLiteral();
+    }
+
+    // Handle numbers
+    if (isDigit(c)) {
+        return number();
+    }
+
+    // Handle identifiers and keywords
+    if (isAlpha(c)) {
+        return identifier();
+    }
+
+    // Handle operators and punctuation
+    auto singleChar = singleCharTokens.find(c);
+    if (singleChar != singleCharTokens.end()) {
+        std::string lexeme(1, advance());
+        return Token(singleChar->second, lexeme, line);
+    }
+
+    // Handle multi-character operators
+    if (c == '>' && peekNext() == '=') {
+        advance(); advance();
+        return Token(TokenType::GREATER_EQUAL, ">=", line);
+    }
+    if (c == '<' && peekNext() == '=') {
+        advance(); advance();
+        return Token(TokenType::LESS_EQUAL, "<=", line);
+    }
+    if (c == '!' && peekNext() == '=') {
+        advance(); advance();
+        return Token(TokenType::NOT_EQUAL, "!=", line);
+    }
+    if (c == '=' && peekNext() == '=') {
+        advance(); advance();
+        return Token(TokenType::EQUAL_EQUAL, "==", line);
+    }
+    if (c == '>') {
+        advance();
+        return Token(TokenType::GREATER, ">", line);
+    }
+    if (c == '<') {
+        advance();
+        return Token(TokenType::LESS, "<", line);
+    }
+
+    // Unknown character
+    std::string lexeme(1, advance());
+    std::cerr << "Unknown character '" << lexeme << "' at line " << line << std::endl;
+    return Token(TokenType::UNKNOWN, lexeme, line);
 }
 
 } // namespace MyCustomLang

@@ -9,7 +9,7 @@ namespace MyCustomLang {
 
 class Lexer {
 public:
-    explicit Lexer(std::string source);
+    explicit Lexer(const std::string& source);
     Token getNextToken();
 
 private:
@@ -18,6 +18,9 @@ private:
     int line;
     int indent_level;
     std::vector<int> indent_stack;
+    int pendingDedents;
+
+    static const size_t MAX_TOKEN_LENGTH = 256;
 
     char peek() const;
     char peekNext() const;

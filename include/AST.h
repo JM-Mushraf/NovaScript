@@ -1,12 +1,18 @@
-#ifndef AST_H
-#define AST_H
+#ifndef MYCUSTOMLANG_AST_H
+#define MYCUSTOMLANG_AST_H
 
-#include <vector>
-#include <memory>
 #include "Token.h"
-#include "Common.h"
+#include <memory>
+#include <vector>
+#include <string>
 
 namespace MyCustomLang {
+
+class Expr;
+class Stmt;
+
+using ExprPtr = std::unique_ptr<Expr>;
+using StmtPtr = std::unique_ptr<Stmt>;
 
 class Expr {
 public:
@@ -48,8 +54,29 @@ public:
 
 class DictLiteralExpr : public Expr {
 public:
-    std::vector<std::pair<ExprPtr, ExprPtr>> pairs;
-    explicit DictLiteralExpr(std::vector<std::pair<ExprPtr, ExprPtr>> p) : pairs(std::move(p)) {}
+    std::vector<std::pair<ExprPtr, ExprPtr>> entries;
+    explicit DictLiteralExpr(std::vector<std::pair<ExprPtr, ExprPtr>> e) : entries(std::move(e)) {}
+};
+
+class IndexExpr : public Expr {
+public:
+    ExprPtr base;
+    ExprPtr index;
+    IndexExpr(ExprPtr b, ExprPtr i) : base(std::move(b)), index(std::move(i)) {}
+};
+
+class AssignExpr : public Expr {
+public:
+    Token name;
+    ExprPtr value;
+    AssignExpr(Token n, ExprPtr v) : name(std::move(n)), value(std::move(v)) {}
+};
+
+class IndexAssignExpr : public Expr {
+public:
+    ExprPtr target;
+    ExprPtr value;
+    IndexAssignExpr(ExprPtr t, ExprPtr v) : target(std::move(t)), value(std::move(v)) {}
 };
 
 class Stmt {
@@ -61,31 +88,81 @@ class VarDeclStmt : public Stmt {
 public:
     Token name;
     ExprPtr init;
-    VarDeclStmt(Token n, ExprPtr i) : name(std::move(n)), init(std::move(i)) {}
+    Token typeHint;
+    bool isLong;
+    VarDeclStmt(Token n, ExprPtr i, Token t = Token(TokenType::NONE, "", 0), bool l = false)
+        : name(std::move(n)), init(std::move(i)), typeHint(std::move(t)), isLong(l) {}
 };
 
-class AssignmentStmt : public Stmt {
+class IndexAssignStmt : public Stmt {
 public:
-    Token name;
+    ExprPtr target;
     ExprPtr value;
-    AssignmentStmt(Token n, ExprPtr v) : name(std::move(n)), value(std::move(v)) {}
-};
-
-class WhenStmt : public Stmt {
-public:
-    struct Branch {
-        ExprPtr condition; // nullptr for 'otherwise' without condition
-        std::vector<StmtPtr> body;
-        Branch(ExprPtr c, std::vector<StmtPtr> b) : condition(std::move(c)), body(std::move(b)) {}
-    };
-    std::vector<Branch> branches;
-    explicit WhenStmt(std::vector<Branch> b) : branches(std::move(b)) {}
+    IndexAssignStmt(ExprPtr t, ExprPtr v) : target(std::move(t)), value(std::move(v)) {}
 };
 
 class SayStmt : public Stmt {
 public:
     ExprPtr expr;
     explicit SayStmt(ExprPtr e) : expr(std::move(e)) {}
+};
+
+class WhenStmt : public Stmt {
+public:
+    struct Branch {
+        ExprPtr condition; // nullptr for 'otherwise' clauses
+        std::vector<StmtPtr> body;
+        Branch(ExprPtr c, std::vector<StmtPtr> b)
+            : condition(std::move(c)), body(std::move(b)) {}
+    };
+    std::vector<Branch> branches;
+    explicit WhenStmt(std::vector<Branch> b) : branches(std::move(b)) {}
+};
+
+class MatchStmt : public Stmt {
+public:
+    struct Case {
+        ExprPtr pattern;
+        std::vector<StmtPtr> body;
+        Case(ExprPtr p, std::vector<StmtPtr> b)
+            : pattern(std::move(p)), body(std::move(b)) {}
+    };
+    ExprPtr condition;
+    std::vector<Case> cases;
+    MatchStmt(ExprPtr c, std::vector<Case> cs)
+        : condition(std::move(c)), cases(std::move(cs)) {}
+};
+
+class WhileStmt : public Stmt {
+public:
+    ExprPtr condition;
+    std::vector<StmtPtr> body;
+    WhileStmt(ExprPtr c, std::vector<StmtPtr> b)
+        : condition(std::move(c)), body(std::move(b)) {}
+};
+
+class ForStmt : public Stmt {
+public:
+    Token iterator;
+    ExprPtr start;
+    ExprPtr end;
+    ExprPtr step;
+    std::vector<StmtPtr> body;
+    ForStmt(Token i, ExprPtr s, ExprPtr e, ExprPtr st, std::vector<StmtPtr> b)
+        : iterator(std::move(i)), start(std::move(s)), end(std::move(e)),
+          step(std::move(st)), body(std::move(b)) {}
+};
+
+class WithStmt : public Stmt {
+public:
+    Token iterator;
+    ExprPtr start;
+    ExprPtr end;
+    ExprPtr step;
+    std::vector<StmtPtr> body;
+    WithStmt(Token i, ExprPtr s, ExprPtr e, ExprPtr st, std::vector<StmtPtr> b)
+        : iterator(std::move(i)), start(std::move(s)), end(std::move(e)),
+          step(std::move(st)), body(std::move(b)) {}
 };
 
 class Program {
@@ -96,4 +173,4 @@ public:
 
 } // namespace MyCustomLang
 
-#endif
+#endif // MYCUSTOMLANG_AST_H
