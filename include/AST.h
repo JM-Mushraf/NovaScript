@@ -1,98 +1,97 @@
 #ifndef AST_H
 #define AST_H
 
-#include <memory>
-#include <string>
-#include <variant>
 #include <vector>
+#include <memory>
 #include "Token.h"
-
-// Abstract Syntax Tree (AST) node definitions for the parser.
-// The AST represents the syntactic structure of the program, with nodes for
-// expressions (e.g., numbers, binary operations) and statements (e.g., variable
-// declarations, when-then statements). We use std::variant for polymorphic node
-// types and std::unique_ptr for memory management.
+#include "Common.h"
 
 namespace MyCustomLang {
 
-// Forward declarations for AST node types
-struct Expr;
-struct Stmt;
-
-// Alias for unique_ptr to AST nodes
-using ExprPtr = std::unique_ptr<Expr>;
-using StmtPtr = std::unique_ptr<Stmt>;
-
-// --- Expression Nodes ---
-
-// Base struct for expressions, used for polymorphic inheritance
-struct Expr {
+class Expr {
+public:
     virtual ~Expr() = default;
 };
 
-// Literal expression (e.g., number "42", string "Hello")
-struct LiteralExpr : Expr {
-    Token value; // Token containing the literal value (NUMBER, STRING)
-    LiteralExpr(Token v) : value(std::move(v)) {}
+class LiteralExpr : public Expr {
+public:
+    Token value;
+    explicit LiteralExpr(Token v) : value(std::move(v)) {}
 };
 
-// Variable reference (e.g., identifier "x")
-struct VariableExpr : Expr {
-    Token name; // Token containing the identifier (IDENTIFIER)
-    VariableExpr(Token n) : name(std::move(n)) {}
+class VariableExpr : public Expr {
+public:
+    Token name;
+    explicit VariableExpr(Token n) : name(std::move(n)) {}
 };
 
-// Binary operation (e.g., "x + y", "x > y")
-struct BinaryExpr : Expr {
-    ExprPtr left; // Left operand
-    Token op;     // Operator (PLUS, MINUS, GREATER, etc.)
-    ExprPtr right;// Right operand
+class BinaryExpr : public Expr {
+public:
+    ExprPtr left;
+    Token op;
+    ExprPtr right;
     BinaryExpr(ExprPtr l, Token o, ExprPtr r)
         : left(std::move(l)), op(std::move(o)), right(std::move(r)) {}
 };
 
-// Parenthesized expression (e.g., "(x + y)")
-struct ParenExpr : Expr {
-    ExprPtr expr; // Inner expression
-    ParenExpr(ExprPtr e) : expr(std::move(e)) {}
+class ParenExpr : public Expr {
+public:
+    ExprPtr expr;
+    explicit ParenExpr(ExprPtr e) : expr(std::move(e)) {}
 };
 
-// --- Statement Nodes ---
+class ListLiteralExpr : public Expr {
+public:
+    std::vector<ExprPtr> elements;
+    explicit ListLiteralExpr(std::vector<ExprPtr> e) : elements(std::move(e)) {}
+};
 
-// Base struct for statements
-struct Stmt {
+class DictLiteralExpr : public Expr {
+public:
+    std::vector<std::pair<ExprPtr, ExprPtr>> pairs;
+    explicit DictLiteralExpr(std::vector<std::pair<ExprPtr, ExprPtr>> p) : pairs(std::move(p)) {}
+};
+
+class Stmt {
+public:
     virtual ~Stmt() = default;
 };
 
-// Variable declaration (e.g., "let x = 42")
-struct VarDeclStmt : Stmt {
-    Token name;   // Identifier (IDENTIFIER)
-    ExprPtr init; // Initializer expression
+class VarDeclStmt : public Stmt {
+public:
+    Token name;
+    ExprPtr init;
     VarDeclStmt(Token n, ExprPtr i) : name(std::move(n)), init(std::move(i)) {}
 };
 
-// Say statement (e.g., "say x")
-struct SayStmt : Stmt {
-    ExprPtr expr; // Expression to output
-    SayStmt(ExprPtr e) : expr(std::move(e)) {}
+class AssignmentStmt : public Stmt {
+public:
+    Token name;
+    ExprPtr value;
+    AssignmentStmt(Token n, ExprPtr v) : name(std::move(n)), value(std::move(v)) {}
 };
 
-// When-then-otherwise statement
-struct WhenStmt : Stmt {
+class WhenStmt : public Stmt {
+public:
     struct Branch {
-        ExprPtr condition;      // Condition expression (null for final "otherwise")
-        std::vector<StmtPtr> body; // List of statements in the branch
-        Branch(ExprPtr c, std::vector<StmtPtr> b)
-            : condition(std::move(c)), body(std::move(b)) {}
+        ExprPtr condition; // nullptr for 'otherwise' without condition
+        std::vector<StmtPtr> body;
+        Branch(ExprPtr c, std::vector<StmtPtr> b) : condition(std::move(c)), body(std::move(b)) {}
     };
-    std::vector<Branch> branches; // List of branches (when/otherwise)
-    WhenStmt(std::vector<Branch> b) : branches(std::move(b)) {}
+    std::vector<Branch> branches;
+    explicit WhenStmt(std::vector<Branch> b) : branches(std::move(b)) {}
 };
 
-// Program (top-level AST node)
-struct Program {
-    std::vector<StmtPtr> statements; // List of statements
-    Program(std::vector<StmtPtr> s) : statements(std::move(s)) {}
+class SayStmt : public Stmt {
+public:
+    ExprPtr expr;
+    explicit SayStmt(ExprPtr e) : expr(std::move(e)) {}
+};
+
+class Program {
+public:
+    std::vector<StmtPtr> statements;
+    explicit Program(std::vector<StmtPtr> s) : statements(std::move(s)) {}
 };
 
 } // namespace MyCustomLang

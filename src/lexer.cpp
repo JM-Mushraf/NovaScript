@@ -1,12 +1,14 @@
 #include "../include/Lexer.h"
+#include <cctype>
 #include <unordered_map>
+#include <iostream>
 
-using namespace std;
-using MyCustomLang::Token;
-using MyCustomLang::TokenType;
+namespace MyCustomLang {
 
-// Mapping of keywords to their TokenType (unchanged from your version, duplicates removed)
-static const unordered_map<string, TokenType> keywords = {
+static const int MAX_TOKEN_LENGTH = 256;
+
+// Mapping of keywords to their TokenType
+static const std::unordered_map<std::string, TokenType> keywords = {
     {"let", TokenType::LET},
     {"set", TokenType::SET},
     {"be", TokenType::BE},
@@ -45,7 +47,7 @@ static const unordered_map<string, TokenType> keywords = {
 };
 
 // Single-character tokens: operators and punctuation
-static const unordered_map<char, TokenType> singleCharTokens = {
+static const std::unordered_map<char, TokenType> singleCharTokens = {
     {'+', TokenType::PLUS},
     {'-', TokenType::MINUS},
     {'*', TokenType::STAR},
@@ -61,12 +63,17 @@ static const unordered_map<char, TokenType> singleCharTokens = {
     {',', TokenType::COMMA}
 };
 
-Lexer::Lexer(const string& src) : source(src), current(0), line(1), indent_stack({0}) {
-    // Initialize indent_stack with 0 (no indentation)
+Lexer::Lexer(std::string src) 
+    : source(std::move(src)), current(0), line(1), indent_level(0) {
+    indent_stack.push_back(0);
 }
 
 char Lexer::peek() const {
     return isAtEnd() ? '\0' : source[current];
+}
+
+char Lexer::peekNext() const {
+    return current + 1 < source.length() ? source[current + 1] : '\0';
 }
 
 char Lexer::advance() {
@@ -74,14 +81,63 @@ char Lexer::advance() {
 }
 
 bool Lexer::isAtEnd() const {
-    return current >= source.size();
+    return current >= source.length();
+}
+
+bool Lexer::isAlpha(char c) const {
+    return std::isalpha(c) || c == '_';
+}
+
+bool Lexer::isDigit(char c) const {
+    return std::isdigit(c);
+}
+
+bool Lexer::isAlphaNumeric(char c) const {
+    return isAlpha(c) || isDigit(c);
 }
 
 Token Lexer::getNextToken() {
     while (!isAtEnd()) {
         char c = advance();
 
+        // Handle whitespace (outside indentation)
+        if (c == ' ' || c == '\t') continue;
+
+        // Handle newlines and indentation
+        if (c == '\n') {
+            line++;
+            size_t temp_current = current;
+            int spaces = 0;
+            while (!isAtEnd() && (peek() == ' ' || peek() == '\t')) {
+                char ws = advance();
+                spaces += (ws == '\t' ? 4 : 1);
+            }
+            // Emit NEWLINE for the previous line
+            if (!isAtEnd() && peek() != '\n' && peek() != '#') {
+                int current_indent = indent_stack.back();
+                if (spaces > current_indent) {
+                    indent_stack.push_back(spaces);
+                    indent_level++;
+                    return Token(TokenType::INDENT, "", line);
+                } else if (spaces < current_indent) {
+                    indent_stack.pop_back();
+                    if (spaces != indent_stack.back()) {
+                        std::cerr << "Indentation error at line " << line << ": expected " 
+                                  << indent_stack.back() << " spaces, got " << spaces << std::endl;
+                        return Token(TokenType::UNKNOWN, "", line);
+                    }
+                    return Token(TokenType::DEDENT, "", line);
+                }
+            }
+            current = temp_current;
+            return Token(TokenType::NEWLINE, "", line - 1);
+        }
+
         // Handle comments
+        if (c == '#') {
+            while (!isAtEnd() && peek() != '\n') advance();
+            continue;
+        }
         if (c == '/' && peek() == '/') {
             while (!isAtEnd() && peek() != '\n') advance();
             continue;
@@ -89,7 +145,7 @@ Token Lexer::getNextToken() {
         if (c == '/' && peek() == '*') {
             advance(); // Consume '*'
             while (!isAtEnd()) {
-                if (peek() == '*' && source[current + 1] == '/') {
+                if (peek() == '*' && peekNext() == '/') {
                     advance(); // Consume '*'
                     advance(); // Consume '/'
                     break;
@@ -97,40 +153,12 @@ Token Lexer::getNextToken() {
                 if (peek() == '\n') line++;
                 advance();
             }
+            if (isAtEnd()) {
+                std::cerr << "Unterminated multi-line comment at line " << line << std::endl;
+                return Token(TokenType::UNKNOWN, "", line);
+            }
             continue;
         }
-
-        // Handle newlines and indentation
-        if (c == '\n') {
-            line++;
-            // Check indentation at the start of the next line
-            int indent_level = 0;
-            while (!isAtEnd() && (peek() == ' ' || peek() == '\t')) {
-                char ws = advance();
-                // Assume 1 tab = 4 spaces for simplicity (adjust as needed)
-                indent_level += (ws == '\t' ? 4 : 1);
-            }
-
-            // Compare with current indentation level
-            int current_indent = indent_stack.back();
-            if (indent_level > current_indent) {
-                indent_stack.push_back(indent_level);
-                return Token(TokenType::INDENT, "", line);
-            } else if (indent_level < current_indent) {
-                indent_stack.pop_back();
-                // Emit DEDENT for each level decrease
-                if (indent_level != indent_stack.back()) {
-                    cerr << "Indentation error at line " << line << endl;
-                    return Token(TokenType::UNKNOWN, "", line);
-                }
-                return Token(TokenType::DEDENT, "", line);
-            }
-            // If indentation is the same, return NEWLINE
-            return Token(TokenType::NEWLINE, "", line);
-        }
-
-        // Skip other whitespace (outside indentation)
-        if (isspace(c)) continue;
 
         // Operators and punctuation
         if (c == '<') return Token(TokenType::LESS, "<", line);
@@ -139,17 +167,17 @@ Token Lexer::getNextToken() {
 
         auto op = singleCharTokens.find(c);
         if (op != singleCharTokens.end()) {
-            return Token(op->second, string(1, c), line);
+            return Token(op->second, std::string(1, c), line);
         }
 
         // Identifiers and keywords
-        if (isalpha(c) || c == '_') {
+        if (isAlpha(c)) {
             current--; // Backtrack to read full identifier
             return identifier();
         }
 
         // Numbers
-        if (isdigit(c)) {
+        if (isDigit(c)) {
             current--; // Backtrack to read full number
             return number();
         }
@@ -160,8 +188,8 @@ Token Lexer::getNextToken() {
         }
 
         // Unknown character
-        cerr << "Unknown character '" << c << "' at line " << line << endl;
-        return Token(TokenType::UNKNOWN, string(1, c), line);
+        std::cerr << "Unknown character '" << c << "' at line " << line << std::endl;
+        return Token(TokenType::UNKNOWN, std::string(1, c), line);
     }
 
     // Emit DEDENT tokens to close all open indentation levels at EOF
@@ -173,12 +201,11 @@ Token Lexer::getNextToken() {
     return Token(TokenType::END_OF_FILE, "", line);
 }
 
-// Update identifier to use line member
 Token Lexer::identifier() {
-    string value;
-    while (isalnum(peek()) || peek() == '_') {
+    std::string value;
+    while (isAlphaNumeric(peek())) {
         if (value.size() >= MAX_TOKEN_LENGTH) {
-            cerr << "Identifier too long at line " << line << endl;
+            std::cerr << "Identifier too long at line " << line << std::endl;
             return Token(TokenType::UNKNOWN, value, line);
         }
         value += advance();
@@ -191,12 +218,11 @@ Token Lexer::identifier() {
     return Token(TokenType::IDENTIFIER, value, line);
 }
 
-// Update number to use line member and handle decimals
 Token Lexer::number() {
-    string value;
+    std::string value;
     bool hasDecimal = false;
 
-    while (isdigit(peek()) || peek() == '.') {
+    while (isDigit(peek()) || peek() == '.') {
         char c = peek();
         if (c == '.') {
             if (hasDecimal) break; // Only one decimal point
@@ -208,19 +234,21 @@ Token Lexer::number() {
     return Token(TokenType::NUMBER, value, line);
 }
 
-// Update stringLiteral to use line member
 Token Lexer::stringLiteral() {
-    string value;
+    std::string value;
+    size_t start_line = line;
     while (!isAtEnd() && peek() != '"') {
         if (peek() == '\n') line++;
         value += advance();
     }
 
     if (isAtEnd()) {
-        cerr << "Unterminated string at line " << line << endl;
+        std::cerr << "Unterminated string starting at line " << start_line << std::endl;
         return Token(TokenType::UNKNOWN, value, line);
     }
 
     advance(); // Consume closing quote
     return Token(TokenType::STRING, value, line);
 }
+
+} // namespace MyCustomLang

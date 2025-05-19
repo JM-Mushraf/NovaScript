@@ -1,27 +1,36 @@
 #ifndef LEXER_H
 #define LEXER_H
 
-#include "Token.h"
-#include "Common.h"
 #include <string>
 #include <vector>
+#include "Token.h"
+
+namespace MyCustomLang {
 
 class Lexer {
 public:
-    explicit Lexer(const std::string& source);
-    MyCustomLang::Token getNextToken();
+    explicit Lexer(std::string source);
+    Token getNextToken();
 
 private:
     std::string source;
     size_t current;
-    int line; // Track line number
-    std::vector<int> indent_stack; // Track indentation levels
+    int line;
+    int indent_level;
+    std::vector<int> indent_stack;
+
     char peek() const;
+    char peekNext() const;
     char advance();
     bool isAtEnd() const;
-    MyCustomLang::Token identifier();
-    MyCustomLang::Token number();
-    MyCustomLang::Token stringLiteral();
+    bool isAlpha(char c) const;
+    bool isDigit(char c) const;
+    bool isAlphaNumeric(char c) const;
+    Token identifier();
+    Token number();
+    Token stringLiteral();
 };
+
+} // namespace MyCustomLang
 
 #endif

@@ -3,30 +3,23 @@
 #include <sstream>
 #include <iomanip>
 #include "../include/Lexer.h"
-#include "../include/parser.h"
+#include "../include/Parser.h"
 
 using namespace MyCustomLang;
 
-// Helper function to print a token with formatted output
 void printToken(const Token& token) {
-    // Format the lexeme for special tokens (INDENT, DEDENT, NEWLINE)
     std::string lexeme = token.lexeme;
     if (token.type == TokenType::INDENT) lexeme = "<indent>";
     else if (token.type == TokenType::DEDENT) lexeme = "<dedent>";
     else if (token.type == TokenType::NEWLINE) lexeme = "<newline>";
-    else if (lexeme.empty()) lexeme = "''"; // Empty lexeme for tokens like EOF
-
-    // Print token details with fixed-width formatting for alignment
+    else if (lexeme.empty()) lexeme = "''";
     std::cout << "Token: " << std::left << std::setw(20) << lexeme 
               << " (" << tokenTypeToString(token.type) << ") at line " 
               << token.line << "\n";
 }
 
-// Helper function to print an expression (recursive)
 void printExpr(const Expr* expr, int indent = 0) {
-    // Indent the output for hierarchical display
     std::string indentStr(indent * 2, ' ');
-
     if (const auto* literal = dynamic_cast<const LiteralExpr*>(expr)) {
         std::cout << indentStr << "LiteralExpr: " << literal->value.lexeme 
                   << " (" << tokenTypeToString(literal->value.type) << ")\n";
@@ -44,20 +37,39 @@ void printExpr(const Expr* expr, int indent = 0) {
         std::cout << indentStr << "ParenExpr:\n";
         printExpr(paren->expr.get(), indent + 1);
     }
+    else if (const auto* list = dynamic_cast<const ListLiteralExpr*>(expr)) {
+        std::cout << indentStr << "ListLiteralExpr:\n";
+        for (const auto& elem : list->elements) {
+            std::cout << indentStr << "  Element:\n";
+            printExpr(elem.get(), indent + 2);
+        }
+    }
+    else if (const auto* dict = dynamic_cast<const DictLiteralExpr*>(expr)) {
+        std::cout << indentStr << "DictLiteralExpr:\n";
+        for (const auto& pair : dict->pairs) {
+            std::cout << indentStr << "  Pair:\n";
+            std::cout << indentStr << "    Key:\n";
+            printExpr(pair.first.get(), indent + 3);
+            std::cout << indentStr << "    Value:\n";
+            printExpr(pair.second.get(), indent + 3);
+        }
+    }
     else {
         std::cout << indentStr << "Unknown Expr\n";
     }
 }
 
-// Helper function to print a statement (recursive)
 void printStmt(const Stmt* stmt, int indent = 0) {
-    // Indent the output for hierarchical display
     std::string indentStr(indent * 2, ' ');
-
     if (const auto* varDecl = dynamic_cast<const VarDeclStmt*>(stmt)) {
         std::cout << indentStr << "VarDeclStmt: " << varDecl->name.lexeme << "\n";
         std::cout << indentStr << "  Init:\n";
         printExpr(varDecl->init.get(), indent + 2);
+    }
+    else if (const auto* assign = dynamic_cast<const AssignmentStmt*>(stmt)) {
+        std::cout << indentStr << "AssignmentStmt: " << assign->name.lexeme << "\n";
+        std::cout << indentStr << "  Value:\n";
+        printExpr(assign->value.get(), indent + 2);
     }
     else if (const auto* say = dynamic_cast<const SayStmt*>(stmt)) {
         std::cout << indentStr << "SayStmt:\n";
@@ -86,7 +98,6 @@ void printStmt(const Stmt* stmt, int indent = 0) {
     }
 }
 
-// Helper function to print the entire AST
 void printAST(const Program& program) {
     std::cout << "\nAbstract Syntax Tree (AST):\n";
     std::cout << "Program with " << program.statements.size() << " statements:\n";
@@ -97,7 +108,6 @@ void printAST(const Program& program) {
 }
 
 int main() {
-    // Read code from file "code.ns"
     std::ifstream file("code.ns");
     if (!file.is_open()) {
         std::cerr << "Could not open file 'code.ns'.\n";
@@ -108,7 +118,6 @@ int main() {
     buffer << file.rdbuf();
     std::string code = buffer.str();
 
-    // Tokenize the code
     Lexer lexer(code);
     std::vector<Token> tokens;
     Token token;
@@ -117,14 +126,12 @@ int main() {
         tokens.push_back(token);
     } while (token.type != TokenType::END_OF_FILE);
 
-    // Print tokens
     std::cout << "Tokens (" << tokens.size() << " total):\n";
     for (const auto& t : tokens) {
         printToken(t);
     }
     std::cout << "\n";
 
-    // Parse the tokens
     try {
         Parser parser(tokens);
         Program ast = parser.parse();

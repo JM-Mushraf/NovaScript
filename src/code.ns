@@ -1,8 +1,2 @@
-let x = y
-when x > 0 then
-    say "Positive"
-otherwise when x = 0 then
-    say "Zero"
-otherwise
-    say "Negative"
-end
+let x be "dsfsf"
+set y as 10000

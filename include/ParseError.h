@@ -1,22 +1,19 @@
 #ifndef PARSER_ERROR_H
-#define PARSER_ERROR_H
+#define PARSERANDE
 
-#include <stdexcept>
 #include <string>
 #include "Token.h"
 
-// Custom exception class for parsing errors.
-// Thrown when the parser encounters invalid syntax, including the token
-// that caused the error and its line number for better error reporting.
-
 namespace MyCustomLang {
 
-class ParserError : public std::runtime_error {
+class ParserError : public std::exception {
 public:
-    ParserError(const Token& token, const std::string& message)
-        : std::runtime_error(
-              "Parse error at line " + std::to_string(token.line) +
-              ": " + message + " (token: " + token.lexeme + ")") {}
+    ParserError(const Token& token, std::string message)
+        : msg("Parse error at line " + std::to_string(token.line) + ": " + message +
+              " (token: " + (token.lexeme.empty() ? tokenTypeToString(token.type) : token.lexeme) + ")") {}
+    const char* what() const noexcept override { return msg.c_str(); }
+private:
+    std::string msg;
 };
 
 } // namespace MyCustomLang

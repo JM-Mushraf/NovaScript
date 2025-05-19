@@ -1,13 +1,15 @@
 #ifndef COMMON_H
 #define COMMON_H
 
-#include <iostream>
-#include <fstream>
-#include <sstream>
-#include <string>
-#include <vector>
-#include <cctype>
+#include <memory>
 
-#define MAX_TOKEN_LENGTH 256
+namespace MyCustomLang {
+
+class Expr;
+class Stmt;
+using ExprPtr = std::unique_ptr<Expr>;
+using StmtPtr = std::unique_ptr<Stmt>;
+
+} // namespace MyCustomLang
 
 #endif
