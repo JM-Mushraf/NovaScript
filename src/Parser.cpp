@@ -52,7 +52,10 @@ void Parser::synchronize() {
             peek().type == TokenType::MATCH ||
             peek().type == TokenType::REPEAT ||
             peek().type == TokenType::WHEN ||
-            peek().type == TokenType::SAY) {
+            peek().type == TokenType::SAY ||
+            peek().type == TokenType::CASE ||
+            peek().type == TokenType::DEDENT ||
+            peek().type == TokenType::END_OF_FILE) {
             break;
         }
         advance();
@@ -71,9 +74,14 @@ Program Parser::parseProgram() {
     std::vector<StmtPtr> statements;
     while (!isAtEnd() && peek().type != TokenType::END_OF_FILE) {
         if (match(TokenType::NEWLINE)) {
-            continue;
+            continue; // Preserve NEWLINE tokens for counting
+        }
+        if (match(TokenType::DEDENT)) {
+            continue; // Preserve DEDENT for block handling
         }
         statements.push_back(parseStmt());
+        // Consume NEWLINEs after statements but ensure they're counted
+        while (match(TokenType::NEWLINE)) {}
     }
     return Program(std::move(statements));
 }
@@ -84,12 +92,20 @@ StmtPtr Parser::parseStmt() {
             return parseVarDecl();
         }
         if (match(TokenType::SET)) {
-            // Check if this is an assignment or index assignment
-            Token next = peek();
-            if (next.type == TokenType::IDENTIFIER && checkNext(TokenType::AS)) {
-                return parseAssignmentStmt();
+            ExprPtr target = parsePrimary();
+            if (!match(TokenType::AS)) {
+                throw ParserError(peek(), "Expected 'as' after target in 'set' statement");
             }
-            return parseVarDecl();
+            ExprPtr value = parseExpr();
+            if (auto* indexExpr = dynamic_cast<IndexExpr*>(target.get())) {
+                while (match(TokenType::NEWLINE)) {}
+                return std::make_unique<IndexAssignStmt>(std::move(target), std::move(value));
+            }
+            if (auto* varExpr = dynamic_cast<VariableExpr*>(target.get())) {
+                while (match(TokenType::NEWLINE)) {}
+                return std::make_unique<VarDeclStmt>(varExpr->name, std::move(value));
+            }
+            throw ParserError(previous(), "Invalid target for 'set' statement (must be variable or index)");
         }
         if (match(TokenType::WHEN)) {
             return parseWhenStmt();
@@ -112,6 +128,9 @@ StmtPtr Parser::parseStmt() {
             }
             throw ParserError(peek(), "Expected 'while', 'for', or 'with' after 'repeat'");
         }
+        if (match(TokenType::CASE)) {
+            throw ParserError(previous(), "Unexpected 'case' outside of match statement");
+        }
         throw ParserError(peek(), "Expected statement (let, set, when, say, match, or repeat)");
     } catch (const ParserError& e) {
         synchronize();
@@ -120,68 +139,32 @@ StmtPtr Parser::parseStmt() {
 }
 
 StmtPtr Parser::parseVarDecl() {
-    bool isSet = previous().type == TokenType::SET;
-
-    if (isSet) {
-        ExprPtr target = parsePrimary();
-        if (!match(TokenType::AS)) {
-            throw ParserError(peek(), "Expected 'as' in 'set' statement");
-        }
-        ExprPtr value = parseExpr();
-
-        Token typeHint = Token(TokenType::NONE, "", 0);
-        bool isLong = false;
-        if (match(TokenType::AS)) {
-            if (match(TokenType::INTEGER)) {
-                typeHint = previous();
-                if (match(TokenType::LONG)) {
-                    isLong = true;
-                }
-            } else {
-                throw ParserError(peek(), "Expected type hint after 'as'");
-            }
-        }
-
-        if (!match(TokenType::NEWLINE)) {
-            throw ParserError(peek(), "Expected newline after 'set' statement");
-        }
-
-        if (auto* indexExpr = dynamic_cast<IndexExpr*>(target.get())) {
-            return std::make_unique<IndexAssignStmt>(std::move(target), std::move(value));
-        }
-        if (auto* varExpr = dynamic_cast<VariableExpr*>(target.get())) {
-            return std::make_unique<VarDeclStmt>(varExpr->name, std::move(value), typeHint, isLong);
-        }
-        throw ParserError(previous(), "Invalid target for 'set' statement");
-    } else {
-        Token name = advance();
-        if (name.type != TokenType::IDENTIFIER) {
-            throw ParserError(name, "Expected identifier after 'let'");
-        }
-
-        if (!match(TokenType::BE) && !match(TokenType::EQUAL)) {
-            throw ParserError(peek(), "Expected 'be' or '=' after identifier in 'let' statement");
-        }
-        ExprPtr init = parseExpr();
-
-        Token typeHint = Token(TokenType::NONE, "", 0);
-        bool isLong = false;
-        if (match(TokenType::AS)) {
-            if (match(TokenType::INTEGER)) {
-                typeHint = previous();
-                if (match(TokenType::LONG)) {
-                    isLong = true;
-                }
-            } else {
-                throw ParserError(peek(), "Expected type hint after 'as'");
-            }
-        }
-
-        if (!match(TokenType::NEWLINE)) {
-            throw ParserError(peek(), "Expected newline after variable declaration");
-        }
-        return std::make_unique<VarDeclStmt>(name, std::move(init), typeHint, isLong);
+    Token name = advance();
+    if (name.type != TokenType::IDENTIFIER) {
+        throw ParserError(name, "Expected identifier after 'let'");
     }
+
+    if (!match(TokenType::BE) && !match(TokenType::EQUAL)) {
+        throw ParserError(peek(), "Expected 'be' or '=' after identifier in 'let' statement");
+    }
+    ExprPtr init = parseExpr();
+
+    Token typeHint = Token(TokenType::NONE, "", 0);
+    bool isLong = false;
+    if (match(TokenType::AS)) {
+        if (match(TokenType::INTEGER)) {
+            typeHint = previous();
+            if (match(TokenType::LONG)) {
+                isLong = true;
+            }
+        } else {
+            throw ParserError(peek(), "Expected type hint after 'as'");
+        }
+    }
+
+    while (match(TokenType::NEWLINE)) {}
+
+    return std::make_unique<VarDeclStmt>(name, std::move(init), typeHint, isLong);
 }
 
 StmtPtr Parser::parseAssignmentStmt() {
@@ -193,9 +176,7 @@ StmtPtr Parser::parseAssignmentStmt() {
         throw ParserError(peek(), "Expected 'as' after identifier");
     }
     ExprPtr value = parseExpr();
-    if (!match(TokenType::NEWLINE)) {
-        throw ParserError(peek(), "Expected newline after assignment");
-    }
+    while (match(TokenType::NEWLINE)) {}
     return std::make_unique<VarDeclStmt>(name, std::move(value));
 }
 
@@ -211,13 +192,12 @@ StmtPtr Parser::parseWhenStmt() {
     auto body = parseStmtList();
     branches.emplace_back(std::move(condition), std::move(body));
 
-    while (!check(TokenType::END)) {
-        if (!match(TokenType::DEDENT) || !match(TokenType::OTHERWISE)) {
-            throw ParserError(peek(), "Expected 'otherwise' after when block");
-        }
+    while (check(TokenType::DEDENT) && checkNext(TokenType::OTHERWISE)) {
+        match(TokenType::DEDENT);
+        match(TokenType::OTHERWISE);
         if (check(TokenType::WHEN)) {
             advance();
-            condition = parseExpr();
+            condition = parseBinaryExpr();
             if (!match(TokenType::THEN)) {
                 throw ParserError(peek(), "Expected 'then' after condition");
             }
@@ -235,16 +215,19 @@ StmtPtr Parser::parseWhenStmt() {
         }
     }
 
+    if (!match(TokenType::DEDENT)) {
+        throw ParserError(peek(), "Expected dedent before 'end' of 'when' statement");
+    }
     if (!match(TokenType::END)) {
         throw ParserError(peek(), "Expected 'end' to close 'when' statement");
     }
-    match(TokenType::NEWLINE);
+    while (match(TokenType::NEWLINE)) {}
     return std::make_unique<WhenStmt>(std::move(branches));
 }
 
 StmtPtr Parser::parseSayStmt() {
     ExprPtr expr = parseExpr();
-    match(TokenType::NEWLINE);
+    while (match(TokenType::NEWLINE)) {}
     return std::make_unique<SayStmt>(std::move(expr));
 }
 
@@ -261,24 +244,29 @@ StmtPtr Parser::parseMatchStmt() {
         if (!match(TokenType::THEN)) {
             throw ParserError(peek(), "Expected 'then' after case pattern");
         }
-        if (!match(TokenType::INDENT)) {
-            throw ParserError(peek(), "Expected indentation after 'then'");
+        std::vector<StmtPtr> body;
+        if (match(TokenType::INDENT)) {
+            body = parseStmtList();
+            if (!match(TokenType::DEDENT) && !(check(TokenType::CASE) || check(TokenType::END))) {
+                throw ParserError(peek(), "Expected dedent after case block");
+            }
+        } else {
+            body.push_back(parseStmt());
         }
-        auto body = parseStmtList();
         cases.emplace_back(std::move(pattern), std::move(body));
-        if (!match(TokenType::DEDENT) && !(check(TokenType::CASE) || check(TokenType::END))) {
-            throw ParserError(peek(), "Expected dedent after case block");
-        }
     }
 
     if (cases.empty()) {
         throw ParserError(peek(), "Expected at least one 'case' clause in 'match' statement");
     }
 
+    if (!match(TokenType::DEDENT) && !check(TokenType::END)) {
+        throw ParserError(peek(), "Expected dedent before 'end' of 'match' statement");
+    }
     if (!match(TokenType::END)) {
         throw ParserError(peek(), "Expected 'end' to close 'match' statement");
     }
-    match(TokenType::NEWLINE);
+    while (match(TokenType::NEWLINE)) {}
     return std::make_unique<MatchStmt>(std::move(condition), std::move(cases));
 }
 
@@ -288,13 +276,13 @@ StmtPtr Parser::parseWhileLoop() {
         throw ParserError(peek(), "Expected indentation after while condition");
     }
     auto body = parseStmtList();
-    if (!match(TokenType::DEDENT) && !check(TokenType::END)) {
+    if (!match(TokenType::DEDENT)) {
         throw ParserError(peek(), "Expected dedent after while block");
     }
     if (!match(TokenType::END)) {
         throw ParserError(peek(), "Expected 'end' to close while loop");
     }
-    match(TokenType::NEWLINE);
+    while (match(TokenType::NEWLINE)) {}
     return std::make_unique<WhileStmt>(std::move(condition), std::move(body));
 }
 
@@ -327,7 +315,7 @@ StmtPtr Parser::parseForLoop() {
     if (!match(TokenType::END)) {
         throw ParserError(peek(), "Expected 'end' to close for loop");
     }
-    match(TokenType::NEWLINE);
+    while (match(TokenType::NEWLINE)) {}
     return std::make_unique<ForStmt>(iterator, std::move(start), std::move(end), std::move(step), std::move(body));
 }
 
@@ -363,7 +351,7 @@ StmtPtr Parser::parseWithLoop() {
     if (!match(TokenType::END)) {
         throw ParserError(peek(), "Expected 'end' to close with loop");
     }
-    match(TokenType::NEWLINE);
+    while (match(TokenType::NEWLINE)) {}
     return std::make_unique<WithStmt>(iterator, std::move(start), std::move(end), std::move(step), std::move(body));
 }
 
@@ -376,26 +364,24 @@ std::vector<StmtPtr> Parser::parseStmtList() {
         }
         statements.push_back(parseStmt());
     }
-    while (match(TokenType::NEWLINE)) {
-        // Consume trailing NEWLINE tokens
-    }
+    while (match(TokenType::NEWLINE)) {}
     return statements;
 }
 
 ExprPtr Parser::parseExpr() {
-    return parseAssignment();
+    return parseBinaryExpr();
 }
 
 ExprPtr Parser::parseAssignment() {
     ExprPtr expr = parseBinaryExpr();
     if (match(TokenType::SET)) {
-        if (dynamic_cast<IndexExpr*>(expr.get())) {
+        if (auto* indexExpr = dynamic_cast<IndexExpr*>(expr.get())) {
             ExprPtr value = parseExpr();
             return std::make_unique<IndexAssignExpr>(std::move(expr), std::move(value));
         }
-        if (auto var = dynamic_cast<VariableExpr*>(expr.get())) {
+        if (auto* varExpr = dynamic_cast<VariableExpr*>(expr.get())) {
             ExprPtr value = parseExpr();
-            return std::make_unique<AssignExpr>(var->name, std::move(value));
+            return std::make_unique<AssignExpr>(varExpr->name, std::move(value));
         }
         throw ParserError(peek(), "Invalid assignment target");
     }
@@ -407,8 +393,13 @@ ExprPtr Parser::parseBinaryExpr() {
     while (check(TokenType::PLUS) || check(TokenType::MINUS) ||
            check(TokenType::STAR) || check(TokenType::SLASH) ||
            check(TokenType::GREATER) || check(TokenType::LESS) ||
-           check(TokenType::EQUAL)) {
+           check(TokenType::GREATER_EQUAL) || check(TokenType::LESS_EQUAL) ||
+           check(TokenType::NOT_EQUAL) || check(TokenType::EQUAL)) {
         Token op = advance();
+        if (op.type == TokenType::EQUAL && check(TokenType::EQUAL)) {
+            advance(); // Consume second EQUAL
+            op = Token(TokenType::EQUAL_EQUAL, "==", op.line);
+        }
         ExprPtr right = parsePrimary();
         left = std::make_unique<BinaryExpr>(std::move(left), op, std::move(right));
     }
@@ -421,6 +412,14 @@ ExprPtr Parser::parsePrimary() {
     }
     if (match(TokenType::STRING)) {
         return std::make_unique<LiteralExpr>(previous());
+    }
+    if (match(TokenType::MINUS)) {
+        if (match(TokenType::NUMBER)) {
+            Token number = previous();
+            std::string lexeme = "-" + number.lexeme;
+            return std::make_unique<LiteralExpr>(Token(TokenType::NUMBER, lexeme, number.line));
+        }
+        throw ParserError(peek(), "Expected number after unary minus");
     }
     if (match(TokenType::IDENTIFIER) || match(TokenType::UNDERSCORE)) {
         ExprPtr var = std::make_unique<VariableExpr>(previous());
