@@ -1,21 +1,19 @@
 #ifndef PARSER_H
 #define PARSER_H
 
-#include <vector>
 #include "Token.h"
-#include "ast.h"
-#include "ParseError.h"
+#include "AST.h"
+#include "SymbolTable.h"
+#include <vector>
+#include <memory>
 
 namespace MyCustomLang {
 
 class Parser {
-public:
-    explicit Parser(std::vector<Token> tokens);
-    Program parse();
-
 private:
     std::vector<Token> tokens;
     size_t current;
+    SymbolTable symbolTable;
 
     Token peek() const;
     Token peekNext() const;
@@ -30,7 +28,7 @@ private:
     Program parseProgram();
     StmtPtr parseStmt();
     StmtPtr parseVarDecl();
-    StmtPtr parseAssignmentStmt();
+    StmtPtr parseSetStmt();
     StmtPtr parseWhenStmt();
     StmtPtr parseSayStmt();
     StmtPtr parseMatchStmt();
@@ -45,6 +43,19 @@ private:
     ExprPtr parseListLiteral();
     ExprPtr parseDictLiteral();
     ExprPtr parseIndexExpr(ExprPtr base);
+
+public:
+    Parser(std::vector<Token> t);
+    Program parse();
+    const SymbolTable& getSymbolTable() const { return symbolTable; }
+};
+
+class ParserError : public std::runtime_error {
+public:
+    Token token;
+    ParserError(const Token& token, const std::string& message)
+        : std::runtime_error("Parser error at line " + std::to_string(token.line) + ": " + message),
+          token(token) {}
 };
 
 } // namespace MyCustomLang

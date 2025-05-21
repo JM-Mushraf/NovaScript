@@ -4,6 +4,7 @@
 #include <iomanip>
 #include "Lexer.h"
 #include "Parser.h"
+#include "SymbolTable.h"
 
 namespace MyCustomLang {
 
@@ -12,16 +13,34 @@ void printToken(const Token& token) {
     if (token.type == TokenType::INDENT) lexeme = "<indent>";
     else if (token.type == TokenType::DEDENT) lexeme = "<dedent>";
     else if (token.type == TokenType::NEWLINE) lexeme = "<newline>";
-    else if (token.type == TokenType::EQUAL_EQUAL) lexeme = token.lexeme; // Use = or ==
+    else if (token.type == TokenType::EQUAL_EQUAL) lexeme = token.lexeme;
     else if (lexeme.empty()) lexeme = "''";
     std::cout << "Token: " << std::left << std::setw(20) << lexeme 
               << " (" << tokenTypeToString(token.type) << ") at line " 
               << token.line << "\n";
 }
+
 void printAST(const Program& program) {
     std::cout << "\nAbstract Syntax Tree (AST):\n";
-    program.print(std::cout, 0); // Use ast.h's print method
+    program.print(std::cout, 0);
     std::cout << "\n";
+}
+
+void printSymbolTable(const SymbolTable& symbolTable) {
+    std::cout << "Symbol Table:\n";
+    const auto& scopes = symbolTable.getScopes();
+    for (size_t i = 0; i < scopes.size(); ++i) {
+        if (scopes[i].empty()) continue; // Skip empty scopes
+        std::cout << "Scope " << i << ":\n";
+        for (const auto& [name, symbol] : scopes[i]) {
+            std::cout << "  Variable: " << name 
+                      << " (Type: " << tokenTypeToString(symbol.typeHint.type);
+            if (symbol.isLong) {
+                std::cout << " LONG";
+            }
+            std::cout << ", Line: " << symbol.name.line << ")\n";
+        }
+    }
 }
 
 } // namespace MyCustomLang
@@ -59,6 +78,7 @@ int main() {
         std::cout << "Parsed " << tokens.size() << " tokens into " 
                   << ast.statements.size() << " statements.\n";
         MyCustomLang::printAST(ast);
+        MyCustomLang::printSymbolTable(parser.getSymbolTable());
     } catch (const MyCustomLang::ParserError& e) {
         std::cerr << "Parsing failed at line " << e.token.line << ": " << e.what() << "\n";
         return 1;

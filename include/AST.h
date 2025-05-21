@@ -199,7 +199,7 @@ public:
         printIndent(os, indent);
         os << "VarDeclStmt: " << name.lexeme;
         if (typeHint.type != TokenType::NONE) {
-            os << " (Type: " << typeHint.lexeme;
+            os << " (Type: " << tokenTypeToString(typeHint.type);
             if (isLong) os << " LONG";
             os << ")";
         }
@@ -209,6 +209,28 @@ public:
             os << "Init:\n";
             init->print(os, indent + 2);
         }
+    }
+private:
+    static std::string tokenTypeToString(TokenType type) {
+        switch (type) {
+            case TokenType::INTEGER: return "INTEGER";
+            case TokenType::NONE: return "NONE";
+            default: return "UNKNOWN";
+        }
+    }
+};
+
+class SetStmt : public Stmt {
+public:
+    Token name;
+    ExprPtr value;
+    SetStmt(Token n, ExprPtr v) : name(std::move(n)), value(std::move(v)) {}
+    void print(std::ostream& os, int indent) const override {
+        printIndent(os, indent);
+        os << "SetStmt: " << name.lexeme << "\n";
+        printIndent(os, indent + 1);
+        os << "Value:\n";
+        value->print(os, indent + 2);
     }
 };
 

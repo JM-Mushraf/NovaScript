@@ -4,7 +4,7 @@
 
 namespace MyCustomLang {
 
-Parser::Parser(std::vector<Token> t) : tokens(std::move(t)), current(0) {}
+Parser::Parser(std::vector<Token> t) : tokens(std::move(t)), current(0), symbolTable() {}
 
 Token Parser::peek() const {
     return isAtEnd() ? Token(TokenType::END_OF_FILE, "", 0) : tokens[current];
@@ -74,13 +74,12 @@ Program Parser::parseProgram() {
     std::vector<StmtPtr> statements;
     while (!isAtEnd() && peek().type != TokenType::END_OF_FILE) {
         if (match(TokenType::NEWLINE)) {
-            continue; // Preserve NEWLINE tokens for counting
+            continue;
         }
         if (match(TokenType::DEDENT)) {
-            continue; // Preserve DEDENT for block handling
+            continue;
         }
         statements.push_back(parseStmt());
-        // Consume NEWLINEs after statements but ensure they're counted
         while (match(TokenType::NEWLINE)) {}
     }
     return Program(std::move(statements));
@@ -92,20 +91,7 @@ StmtPtr Parser::parseStmt() {
             return parseVarDecl();
         }
         if (match(TokenType::SET)) {
-            ExprPtr target = parsePrimary();
-            if (!match(TokenType::AS)) {
-                throw ParserError(peek(), "Expected 'as' after target in 'set' statement");
-            }
-            ExprPtr value = parseExpr();
-            if (auto* indexExpr = dynamic_cast<IndexExpr*>(target.get())) {
-                while (match(TokenType::NEWLINE)) {}
-                return std::make_unique<IndexAssignStmt>(std::move(target), std::move(value));
-            }
-            if (auto* varExpr = dynamic_cast<VariableExpr*>(target.get())) {
-                while (match(TokenType::NEWLINE)) {}
-                return std::make_unique<VarDeclStmt>(varExpr->name, std::move(value));
-            }
-            throw ParserError(previous(), "Invalid target for 'set' statement (must be variable or index)");
+            return parseSetStmt();
         }
         if (match(TokenType::WHEN)) {
             return parseWhenStmt();
@@ -143,6 +129,9 @@ StmtPtr Parser::parseVarDecl() {
     if (name.type != TokenType::IDENTIFIER) {
         throw ParserError(name, "Expected identifier after 'let'");
     }
+    if (symbolTable.symbolExists(name.lexeme)) {
+        throw ParserError(name, "Variable '" + name.lexeme + "' already declared in this scope");
+    }
 
     if (!match(TokenType::BE) && !match(TokenType::EQUAL)) {
         throw ParserError(peek(), "Expected 'be' or '=' after identifier in 'let' statement");
@@ -160,27 +149,60 @@ StmtPtr Parser::parseVarDecl() {
         } else {
             throw ParserError(peek(), "Expected type hint after 'as'");
         }
+    } else if (init && dynamic_cast<LiteralExpr*>(init.get())) {
+        auto* literal = dynamic_cast<LiteralExpr*>(init.get());
+        if (literal->value.type == TokenType::NUMBER) {
+            typeHint = Token(TokenType::INTEGER, "int", name.line);
+        } else if (literal->value.type == TokenType::STRING) {
+            typeHint = Token(TokenType::STRING, "string", name.line);
+        }
     }
+
+    symbolTable.addSymbol(name, typeHint, isLong);
 
     while (match(TokenType::NEWLINE)) {}
 
     return std::make_unique<VarDeclStmt>(name, std::move(init), typeHint, isLong);
 }
 
-StmtPtr Parser::parseAssignmentStmt() {
-    Token name = advance();
-    if (name.type != TokenType::IDENTIFIER) {
-        throw ParserError(name, "Expected identifier after 'set'");
-    }
+StmtPtr Parser::parseSetStmt() {
+    ExprPtr target = parsePrimary();
     if (!match(TokenType::AS)) {
-        throw ParserError(peek(), "Expected 'as' after identifier");
+        throw ParserError(peek(), "Expected 'as' after target in 'set' statement");
     }
     ExprPtr value = parseExpr();
-    while (match(TokenType::NEWLINE)) {}
-    return std::make_unique<VarDeclStmt>(name, std::move(value));
+    if (auto* indexExpr = dynamic_cast<IndexExpr*>(target.get())) {
+        while (match(TokenType::NEWLINE)) {}
+        return std::make_unique<IndexAssignStmt>(std::move(target), std::move(value));
+    }
+    if (auto* varExpr = dynamic_cast<VariableExpr*>(target.get())) {
+        if (!symbolTable.symbolExists(varExpr->name.lexeme)) {
+            throw ParserError(varExpr->name, "Variable '" + varExpr->name.lexeme + "' not declared");
+        }
+        Symbol symbol = symbolTable.getSymbol(varExpr->name.lexeme);
+        if (symbol.typeHint.type == TokenType::INTEGER) {
+            if (auto* literal = dynamic_cast<LiteralExpr*>(value.get())) {
+                if (literal->value.type != TokenType::NUMBER) {
+                    throw ParserError(literal->value, "Type mismatch: expected INTEGER");
+                }
+            } else if (auto* binary = dynamic_cast<BinaryExpr*>(value.get())) {
+                // Assume binary operations (+, -, *, /) on numbers yield numbers
+                if (binary->op.type != TokenType::PLUS && binary->op.type != TokenType::MINUS &&
+                    binary->op.type != TokenType::STAR && binary->op.type != TokenType::SLASH) {
+                    throw ParserError(binary->op, "Type mismatch: expected INTEGER operation");
+                }
+            } else {
+                throw ParserError(peek(), "Type mismatch: expected INTEGER expression");
+            }
+        }
+        while (match(TokenType::NEWLINE)) {}
+        return std::make_unique<SetStmt>(varExpr->name, std::move(value));
+    }
+    throw ParserError(previous(), "Invalid target for 'set' statement (must be variable or index)");
 }
 
 StmtPtr Parser::parseWhenStmt() {
+    symbolTable.enterScope();
     std::vector<WhenStmt::Branch> branches;
     ExprPtr condition = parseExpr();
     if (!match(TokenType::THEN)) {
@@ -221,6 +243,7 @@ StmtPtr Parser::parseWhenStmt() {
     if (!match(TokenType::END)) {
         throw ParserError(peek(), "Expected 'end' to close 'when' statement");
     }
+    symbolTable.exitScope();
     while (match(TokenType::NEWLINE)) {}
     return std::make_unique<WhenStmt>(std::move(branches));
 }
@@ -232,6 +255,7 @@ StmtPtr Parser::parseSayStmt() {
 }
 
 StmtPtr Parser::parseMatchStmt() {
+    symbolTable.enterScope();
     ExprPtr condition = parseExpr();
     if (!match(TokenType::INDENT)) {
         throw ParserError(peek(), "Expected indentation after 'match' expression");
@@ -266,11 +290,13 @@ StmtPtr Parser::parseMatchStmt() {
     if (!match(TokenType::END)) {
         throw ParserError(peek(), "Expected 'end' to close 'match' statement");
     }
+    symbolTable.exitScope();
     while (match(TokenType::NEWLINE)) {}
     return std::make_unique<MatchStmt>(std::move(condition), std::move(cases));
 }
 
 StmtPtr Parser::parseWhileLoop() {
+    symbolTable.enterScope();
     ExprPtr condition = parseExpr();
     if (!match(TokenType::INDENT)) {
         throw ParserError(peek(), "Expected indentation after while condition");
@@ -282,15 +308,18 @@ StmtPtr Parser::parseWhileLoop() {
     if (!match(TokenType::END)) {
         throw ParserError(peek(), "Expected 'end' to close while loop");
     }
+    symbolTable.exitScope();
     while (match(TokenType::NEWLINE)) {}
     return std::make_unique<WhileStmt>(std::move(condition), std::move(body));
 }
 
 StmtPtr Parser::parseForLoop() {
+    symbolTable.enterScope();
     Token iterator = advance();
     if (iterator.type != TokenType::IDENTIFIER) {
         throw ParserError(iterator, "Expected identifier after 'for'");
     }
+    symbolTable.addSymbol(iterator, Token(TokenType::INTEGER, "int", iterator.line), false);
     if (!match(TokenType::FROM)) {
         throw ParserError(peek(), "Expected 'from' in for loop");
     }
@@ -315,15 +344,18 @@ StmtPtr Parser::parseForLoop() {
     if (!match(TokenType::END)) {
         throw ParserError(peek(), "Expected 'end' to close for loop");
     }
+    symbolTable.exitScope();
     while (match(TokenType::NEWLINE)) {}
     return std::make_unique<ForStmt>(iterator, std::move(start), std::move(end), std::move(step), std::move(body));
 }
 
 StmtPtr Parser::parseWithLoop() {
+    symbolTable.enterScope();
     Token iterator = advance();
     if (iterator.type != TokenType::IDENTIFIER) {
         throw ParserError(iterator, "Expected identifier after 'with'");
     }
+    symbolTable.addSymbol(iterator, Token(TokenType::INTEGER, "int", iterator.line), false);
     if (!match(TokenType::STARTING)) {
         throw ParserError(peek(), "Expected 'starting' in with loop");
     }
@@ -351,6 +383,7 @@ StmtPtr Parser::parseWithLoop() {
     if (!match(TokenType::END)) {
         throw ParserError(peek(), "Expected 'end' to close with loop");
     }
+    symbolTable.exitScope();
     while (match(TokenType::NEWLINE)) {}
     return std::make_unique<WithStmt>(iterator, std::move(start), std::move(end), std::move(step), std::move(body));
 }
@@ -380,6 +413,9 @@ ExprPtr Parser::parseAssignment() {
             return std::make_unique<IndexAssignExpr>(std::move(expr), std::move(value));
         }
         if (auto* varExpr = dynamic_cast<VariableExpr*>(expr.get())) {
+            if (!symbolTable.symbolExists(varExpr->name.lexeme)) {
+                throw ParserError(varExpr->name, "Variable '" + varExpr->name.lexeme + "' not declared");
+            }
             ExprPtr value = parseExpr();
             return std::make_unique<AssignExpr>(varExpr->name, std::move(value));
         }
@@ -397,9 +433,9 @@ ExprPtr Parser::parseBinaryExpr() {
            check(TokenType::NOT_EQUAL) || check(TokenType::EQUAL)) {
         Token op = advance();
         if (op.type == TokenType::EQUAL && check(TokenType::EQUAL)) {
-            advance(); // Consume second EQUAL
+            advance();
             op = Token(TokenType::EQUAL_EQUAL, "==", op.line);
-        }else if (op.type == TokenType::EQUAL) {
+        } else if (op.type == TokenType::EQUAL) {
             throw ParserError(op, "Single '=' is not a valid operator. Use '==' for equality.");
         }
         ExprPtr right = parsePrimary();
@@ -424,7 +460,11 @@ ExprPtr Parser::parsePrimary() {
         throw ParserError(peek(), "Expected number after unary minus");
     }
     if (match(TokenType::IDENTIFIER) || match(TokenType::UNDERSCORE)) {
-        ExprPtr var = std::make_unique<VariableExpr>(previous());
+        Token name = previous();
+        if (!symbolTable.symbolExists(name.lexeme)) {
+            throw ParserError(name, "Variable '" + name.lexeme + "' not declared");
+        }
+        ExprPtr var = std::make_unique<VariableExpr>(name);
         if (match(TokenType::LEFT_BRACKET)) {
             return parseIndexExpr(std::move(var));
         }
