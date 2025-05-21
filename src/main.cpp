@@ -12,12 +12,12 @@ void printToken(const Token& token) {
     if (token.type == TokenType::INDENT) lexeme = "<indent>";
     else if (token.type == TokenType::DEDENT) lexeme = "<dedent>";
     else if (token.type == TokenType::NEWLINE) lexeme = "<newline>";
+    else if (token.type == TokenType::EQUAL_EQUAL) lexeme = token.lexeme; // Use = or ==
     else if (lexeme.empty()) lexeme = "''";
     std::cout << "Token: " << std::left << std::setw(20) << lexeme 
               << " (" << tokenTypeToString(token.type) << ") at line " 
               << token.line << "\n";
 }
-
 void printAST(const Program& program) {
     std::cout << "\nAbstract Syntax Tree (AST):\n";
     program.print(std::cout, 0); // Use ast.h's print method

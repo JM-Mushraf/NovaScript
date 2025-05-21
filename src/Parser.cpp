@@ -399,6 +399,8 @@ ExprPtr Parser::parseBinaryExpr() {
         if (op.type == TokenType::EQUAL && check(TokenType::EQUAL)) {
             advance(); // Consume second EQUAL
             op = Token(TokenType::EQUAL_EQUAL, "==", op.line);
+        }else if (op.type == TokenType::EQUAL) {
+            throw ParserError(op, "Single '=' is not a valid operator. Use '==' for equality.");
         }
         ExprPtr right = parsePrimary();
         left = std::make_unique<BinaryExpr>(std::move(left), op, std::move(right));

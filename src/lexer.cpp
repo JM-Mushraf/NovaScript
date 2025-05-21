@@ -285,6 +285,7 @@ namespace MyCustomLang
         }
 
         // Handle multi-character operators
+        // Handle multi-character operators
         if (c == '>' && peekNext() == '=')
         {
             advance();
@@ -307,7 +308,14 @@ namespace MyCustomLang
         {
             advance();
             advance();
+            std::cerr<<"DEBUG---------------------------"<<"=="<<line;
             return Token(TokenType::EQUAL_EQUAL, "==", line);
+        }
+        if (c == '=')
+        {
+            advance();
+            std::cout<<"DEBUG---------------------------"<<"="<<line;
+            return Token(TokenType::EQUAL_EQUAL, "=", line); // Treat single = as equality
         }
         if (c == '>')
         {

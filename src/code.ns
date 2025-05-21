@@ -42,7 +42,7 @@ end
 let y be 5
 when y > 0 then
     say "Positive"
-otherwise when y = 0 then
+otherwise when y == 0 then
     say "Zero"
 otherwise
     say "Negative"
