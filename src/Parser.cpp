@@ -54,6 +54,8 @@ void Parser::synchronize() {
             peek().type == TokenType::WHEN ||
             peek().type == TokenType::SAY ||
             peek().type == TokenType::CASE ||
+            peek().type == TokenType::DEFINE ||
+            peek().type == TokenType::CALL || 
             peek().type == TokenType::DEDENT ||
             peek().type == TokenType::TRY ||
             peek().type == TokenType::END_OF_FILE) {
@@ -130,6 +132,15 @@ StmtPtr Parser::parseStmt() {
         if (match(TokenType::CASE)) {
             throw ParserError(previous(), "Unexpected 'case' outside of match statement");
         }
+        if (match(TokenType::DEFINE) && match(TokenType::FUNCTION)) {
+            return parseFunctionDef();
+        }
+        if (match(TokenType::CALL)) {
+            return parseCallStmt();
+        }
+        if (match(TokenType::RETURN)) {
+            return parseReturnStmt();
+        }
         throw ParserError(peek(), "Expected statement (let, set, when, say, match, or repeat)");
     } catch (const ParserError& e) {
         synchronize();
@@ -171,7 +182,7 @@ StmtPtr Parser::parseVarDecl() {
         }
     }
 
-    symbolTable.addSymbol(name, typeHint, isLong);
+    symbolTable.addSymbol(name, typeHint, isLong, {});
 
     while (match(TokenType::NEWLINE)) {}
 
@@ -332,7 +343,7 @@ StmtPtr Parser::parseForLoop() {
     if (iterator.type != TokenType::IDENTIFIER) {
         throw ParserError(iterator, "Expected identifier after 'for'");
     }
-    symbolTable.addSymbol(iterator, Token(TokenType::INTEGER, "int", iterator.line), false);
+    symbolTable.addSymbol(iterator, Token(TokenType::INTEGER, "int", iterator.line), false, {});
     if (!match(TokenType::FROM)) {
         throw ParserError(peek(), "Expected 'from' in for loop");
     }
@@ -368,7 +379,7 @@ StmtPtr Parser::parseWithLoop() {
     if (iterator.type != TokenType::IDENTIFIER) {
         throw ParserError(iterator, "Expected identifier after 'with'");
     }
-    symbolTable.addSymbol(iterator, Token(TokenType::INTEGER, "int", iterator.line), false);
+    symbolTable.addSymbol(iterator, Token(TokenType::INTEGER, "int", iterator.line), false, {});
     if (!match(TokenType::STARTING)) {
         throw ParserError(peek(), "Expected 'starting' in with loop");
     }
@@ -474,8 +485,28 @@ ExprPtr Parser::parsePrimary() {
     }
     if (match(TokenType::IDENTIFIER) || match(TokenType::UNDERSCORE)) {
         Token name = previous();
+        if (check(TokenType::LEFT_PAREN)) {
+            advance(); // Consume LEFT_PAREN
+            std::vector<ExprPtr> arguments;
+            if (!check(TokenType::RIGHT_PAREN)) {
+                do {
+                    arguments.push_back(parseExpr());
+                } while (match(TokenType::COMMA));
+            }
+            if (!match(TokenType::RIGHT_PAREN)) {
+                throw ParserError(peek(), "Expected ')' after function arguments");
+            }
+            if (!symbolTable.symbolExists(name.lexeme)) {
+                throw ParserError(name, "Function '" + name.lexeme + "' not declared");
+            }
+            Symbol symbol = symbolTable.getSymbol(name.lexeme);
+            if (symbol.typeHint.type != TokenType::FUNCTION) {
+                throw ParserError(name, "'" + name.lexeme + "' is not a function");
+            }
+            return std::make_unique<CallExpr>(name, std::move(arguments));
+        }
         if (!symbolTable.symbolExists(name.lexeme)) {
-            throw ParserError(name, "Variable '" + name.lexeme + "' not declared");
+            throw ParserError(name, "Variable or function '" + name.lexeme + "' not declared");
         }
         ExprPtr var = std::make_unique<VariableExpr>(name);
         if (match(TokenType::LEFT_BRACKET)) {
@@ -483,6 +514,7 @@ ExprPtr Parser::parsePrimary() {
         }
         return var;
     }
+
     if (match(TokenType::LEFT_BRACKET)) {
         return parseListLiteral();
     }
@@ -570,4 +602,112 @@ StmtPtr Parser::parseTryCatchStmt() {
     return std::make_unique<TryCatchStmt>(std::move(tryBody), exceptionVar, std::move(catchBody));
 }
 
+    StmtPtr Parser::parseFunctionDef() {
+    Token name = advance();
+    if (name.type != TokenType::IDENTIFIER) {
+        throw ParserError(name, "Expected function name after 'define function'");
+    }
+    if (symbolTable.symbolExists(name.lexeme)) {
+        throw ParserError(name, "Function '" + name.lexeme + "' already declared in this scope");
+    }
+    std::vector<Token> parameters;
+    if (!match(TokenType::LEFT_PAREN)) {
+        throw ParserError(peek(), "Expected '(' after function name");
+    }
+    if (!check(TokenType::RIGHT_PAREN)) {
+        do {
+            Token param = advance();
+            if (param.type != TokenType::IDENTIFIER) {
+                throw ParserError(param, "Expected parameter name");
+            }
+            parameters.push_back(param);
+        } while (match(TokenType::COMMA));
+    }
+    if (!match(TokenType::RIGHT_PAREN)) {
+        throw ParserError(peek(), "Expected ')' after parameters");
+    }
+    // Add function to symbol table *before* entering new scope
+    symbolTable.addSymbol(name, Token(TokenType::FUNCTION, "function", name.line), false, parameters);
+    symbolTable.enterScope();
+    for (const auto& param : parameters) {
+        symbolTable.addSymbol(param, Token(TokenType::NONE, "", param.line), false);
+    }
+    if (!match(TokenType::INDENT)) {
+        throw ParserError(peek(), "Expected indentation after function definition");
+    }
+    auto body = parseStmtList();
+    if (!match(TokenType::DEDENT)) {
+        throw ParserError(peek(), "Expected dedent after function block");
+    }
+    if (!match(TokenType::END)) {
+        throw ParserError(peek(), "Expected 'end' to close function definition");
+    }
+    symbolTable.exitScope();
+    while (match(TokenType::NEWLINE)) {}
+    return std::make_unique<FunctionDefStmt>(name, std::move(parameters), std::move(body));
+}
+ExprPtr Parser::parseCallExpr() {
+    Token name = advance(); // Consume the IDENTIFIER
+    if (name.type != TokenType::IDENTIFIER) {
+        throw ParserError(name, "Expected function name in call expression");
+    }
+    if (!match(TokenType::LEFT_PAREN)) {
+        // If no paren, treat as a variable (not a call)
+        return std::make_unique<VariableExpr>(name);
+    }
+    std::vector<ExprPtr> arguments;
+    if (!check(TokenType::RIGHT_PAREN)) {
+        do {
+            arguments.push_back(parseExpr()); // Parse each argument as an expression
+        } while (match(TokenType::COMMA));
+    }
+    if (!match(TokenType::RIGHT_PAREN)) {
+        throw ParserError(peek(), "Expected ')' after function arguments");
+    }
+    if (!symbolTable.symbolExists(name.lexeme)) {
+        throw ParserError(name, "Function '" + name.lexeme + "' not declared");
+    }
+    Symbol symbol = symbolTable.getSymbol(name.lexeme);
+    if (symbol.typeHint.type != TokenType::FUNCTION) {
+        throw ParserError(name, "'" + name.lexeme + "' is not a function");
+    }
+    return std::make_unique<CallExpr>(name, std::move(arguments));
+}
+StmtPtr Parser::parseCallStmt() {
+    Token name = advance(); // Consume the IDENTIFIER
+    if (name.type != TokenType::IDENTIFIER) {
+        throw ParserError(name, "Expected function name after 'call'");
+    }
+    if (!match(TokenType::LEFT_PAREN)) {
+        throw ParserError(peek(), "Expected '(' after function name in call statement");
+    }
+    std::vector<ExprPtr> arguments;
+    if (!check(TokenType::RIGHT_PAREN)) {
+        do {
+            arguments.push_back(parseExpr()); // Parse each argument as an expression
+        } while (match(TokenType::COMMA));
+    }
+    if (!match(TokenType::RIGHT_PAREN)) {
+        throw ParserError(peek(), "Expected ')' after function arguments");
+    }
+    if (!symbolTable.symbolExists(name.lexeme)) {
+        throw ParserError(name, "Function '" + name.lexeme + "' not declared");
+    }
+    Symbol symbol = symbolTable.getSymbol(name.lexeme);
+    if (symbol.typeHint.type != TokenType::FUNCTION) {
+        throw ParserError(name, "'" + name.lexeme + "' is not a function");
+    }
+    while (match(TokenType::NEWLINE)) {}
+    return std::make_unique<CallStmt>(name, std::move(arguments));
+}
+
+StmtPtr Parser::parseReturnStmt() {
+    Token token = previous();
+    ExprPtr value = nullptr;
+    if (!check(TokenType::NEWLINE) && !check(TokenType::DEDENT) && !check(TokenType::END)) {
+        value = parseExpr();
+    }
+    while (match(TokenType::NEWLINE)) {}
+    return std::make_unique<ReturnStmt>(std::move(value));
+}
 } // namespace MyCustomLang
