@@ -171,13 +171,33 @@ public:
     IndexAssignExpr(ExprPtr t, ExprPtr v) : target(std::move(t)), value(std::move(v)) {}
     void print(std::ostream& os, int indent) const override {
         printIndent(os, indent);
-        os << "IndexAssignExpr:\n";
+        os << "IndexAssignStmt:\n";
         printIndent(os, indent + 1);
         os << "Target:\n";
         target->print(os, indent + 2);
         printIndent(os, indent + 1);
         os << "Value:\n";
         value->print(os, indent + 2);
+    }
+};
+
+// Add after class IndexAssignExpr : public Expr { ... }
+class CallExpr : public Expr {
+public:
+    Token name;
+    std::vector<ExprPtr> arguments;
+    CallExpr(Token n, std::vector<ExprPtr> args)
+        : name(std::move(n)), arguments(std::move(args)) {}
+    void print(std::ostream& os, int indent) const override {
+        printIndent(os, indent);
+        os << "CallExpr: " << name.lexeme << "\n";
+        printIndent(os, indent + 1);
+        os << "Arguments:\n";
+        for (size_t i = 0; i < arguments.size(); ++i) {
+            printIndent(os, indent + 2);
+            os << "Arg " << i << ":\n";
+            arguments[i]->print(os, indent + 3);
+        }
     }
 };
 
@@ -412,6 +432,51 @@ public:
     }
 };
 
+class FunctionDefStmt : public Stmt {
+public:
+    Token name;
+    std::vector<Token> parameters;
+    std::vector<StmtPtr> body;
+    FunctionDefStmt(Token n, std::vector<Token> params, std::vector<StmtPtr> b)
+        : name(std::move(n)), parameters(std::move(params)), body(std::move(b)) {}
+    void print(std::ostream& os, int indent) const override {
+        printIndent(os, indent);
+        os << "FunctionDefStmt: " << name.lexeme << "\n";
+        printIndent(os, indent + 1);
+        os << "Parameters:\n";
+        for (size_t i = 0; i < parameters.size(); ++i) {
+            printIndent(os, indent + 2);
+            os << "Param " << i << ": " << parameters[i].lexeme << "\n";
+        }
+        printIndent(os, indent + 1);
+        os << "Body:\n";
+        for (const auto& stmt : body) {
+            stmt->print(os, indent + 2);
+        }
+    }
+};
+
+class CallStmt : public Stmt {
+public:
+    Token name;
+    std::vector<ExprPtr> arguments;
+    CallStmt(Token n, std::vector<ExprPtr> args)
+        : name(std::move(n)), arguments(std::move(args)) {}
+    void print(std::ostream& os, int indent) const override {
+        printIndent(os, indent);
+        os << "CallStmt: " << name.lexeme << "\n";
+        if (!arguments.empty()) {
+            printIndent(os, indent + 1);
+            os << "Arguments:\n";
+            for (size_t i = 0; i < arguments.size(); ++i) {
+                printIndent(os, indent + 2);
+                os << "Arg " << i << ":\n";
+                arguments[i]->print(os, indent + 3);
+            }
+        }
+    }
+};
+
 class Program {
 public:
     std::vector<StmtPtr> statements;
@@ -425,6 +490,16 @@ public:
     }
 };
 
+class ReturnStmt : public Stmt {
+public:
+    ReturnStmt(ExprPtr value) : value(std::move(value)) {}
+    void print(std::ostream& os, int indent) const override {
+        printIndent(os, indent);
+        os << "ReturnStmt:\n";
+        if (value) value->print(os, indent + 1);
+    }
+    ExprPtr value;
+};
 } // namespace MyCustomLang
 
 #endif // MYCUSTOMLANG_AST_H

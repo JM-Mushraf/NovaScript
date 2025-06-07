@@ -35,6 +35,10 @@ private:
     StmtPtr parseWhileLoop();
     StmtPtr parseForLoop();
     StmtPtr parseWithLoop();
+    StmtPtr parseFunctionDef();
+    StmtPtr parseCallStmt();
+    StmtPtr parseReturnStmt();
+    ExprPtr parseCallExpr();
     std::vector<StmtPtr> parseStmtList();
     ExprPtr parseExpr();
     ExprPtr parseAssignment();

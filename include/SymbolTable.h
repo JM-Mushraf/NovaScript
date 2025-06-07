@@ -11,8 +11,15 @@ namespace MyCustomLang {
 
 struct Symbol {
     Token name;
-    Token typeHint; // INTEGER or NONE
+    Token typeHint; // INTEGER, NONE, or FUNCTION
     bool isLong;    // For long integers
+    std::vector<Token> parameters; // For functions
+
+    // Default constructor
+    Symbol() : name(TokenType::UNKNOWN, "", 0), typeHint(TokenType::NONE, "", 0), isLong(false), parameters() {}
+
+    Symbol(Token n, Token t, bool l = false, std::vector<Token> p = {})
+        : name(std::move(n)), typeHint(std::move(t)), isLong(l), parameters(std::move(p)) {}
 };
 
 class SymbolTable {
@@ -38,8 +45,8 @@ public:
         }
     }
 
-    void addSymbol(const Token& name, const Token& typeHint, bool isLong) {
-        scopes[currentScope][name.lexeme] = {name, typeHint, isLong};
+    void addSymbol(const Token& name, const Token& typeHint, bool isLong, const std::vector<Token>& params = {}) {
+        scopes[currentScope].emplace(name.lexeme, Symbol{name, typeHint, isLong, params});
     }
 
     bool symbolExists(const std::string& name) const {

@@ -38,6 +38,14 @@ void printSymbolTable(const SymbolTable& symbolTable) {
             if (symbol.isLong) {
                 std::cout << " LONG";
             }
+            if (symbol.typeHint.type == TokenType::FUNCTION) {
+                std::cout << ", Parameters: [";
+                for (size_t j = 0; j < symbol.parameters.size(); ++j) {
+                    std::cout << symbol.parameters[j].lexeme;
+                    if (j < symbol.parameters.size() - 1) std::cout << ", ";
+                }
+                std::cout << "]";
+            }
             std::cout << ", Line: " << symbol.name.line << ")\n";
         }
     }
