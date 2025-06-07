@@ -19,6 +19,7 @@ private:
     int indent_level;
     std::vector<int> indent_stack;
     int pendingDedents;
+    Token previousToken;
 
     static const size_t MAX_TOKEN_LENGTH = 256;
 

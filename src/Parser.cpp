@@ -55,6 +55,7 @@ void Parser::synchronize() {
             peek().type == TokenType::SAY ||
             peek().type == TokenType::CASE ||
             peek().type == TokenType::DEDENT ||
+            peek().type == TokenType::TRY ||
             peek().type == TokenType::END_OF_FILE) {
             break;
         }
@@ -87,6 +88,10 @@ Program Parser::parseProgram() {
 
 StmtPtr Parser::parseStmt() {
     try {
+        // Handle leading INDENT (if any)
+        if (match(TokenType::INDENT)) {
+            // Consume it and continue parsing
+        }
         if (match(TokenType::LET)) {
             return parseVarDecl();
         }
@@ -102,7 +107,12 @@ StmtPtr Parser::parseStmt() {
         if (match(TokenType::MATCH)) {
             return parseMatchStmt();
         }
+        if (match(TokenType::THROW)) {
+        auto expr = parseExpr();
+        return std::make_unique<ThrowStmt>(std::move(expr));
+    }
         if (match(TokenType::REPEAT)) {
+
             if (match(TokenType::WHILE)) {
                 return parseWhileLoop();
             }
@@ -114,6 +124,9 @@ StmtPtr Parser::parseStmt() {
             }
             throw ParserError(peek(), "Expected 'while', 'for', or 'with' after 'repeat'");
         }
+        if (match(TokenType::TRY)) {
+    return parseTryCatchStmt();
+}
         if (match(TokenType::CASE)) {
             throw ParserError(previous(), "Unexpected 'case' outside of match statement");
         }
@@ -523,6 +536,38 @@ ExprPtr Parser::parseIndexExpr(ExprPtr base) {
         throw ParserError(peek(), "Expected ']' after index expression");
     }
     return std::make_unique<IndexExpr>(std::move(base), std::move(index));
+}
+
+StmtPtr Parser::parseTryCatchStmt() {
+    symbolTable.enterScope();
+    if (!match(TokenType::INDENT)) {
+        throw ParserError(peek(), "Expected indentation after 'try'");
+    }
+    auto tryBody = parseStmtList();
+    if (!match(TokenType::DEDENT)) {
+        throw ParserError(peek(), "Expected dedent after try block");
+    }
+    if (!match(TokenType::CATCH)) {
+        throw ParserError(peek(), "Expected 'catch' after try block");
+    }
+    Token exceptionVar = advance();
+    if (exceptionVar.type != TokenType::IDENTIFIER) {
+        throw ParserError(exceptionVar, "Expected identifier for exception variable after 'catch'");
+    }
+    symbolTable.addSymbol(exceptionVar, Token(TokenType::STRING, "string", exceptionVar.line), false);
+    if (!match(TokenType::INDENT)) {
+        throw ParserError(peek(), "Expected indentation after 'catch'");
+    }
+    auto catchBody = parseStmtList();
+    if (!match(TokenType::DEDENT)) {
+        throw ParserError(peek(), "Expected dedent after catch block");
+    }
+    if (!match(TokenType::END)) {
+        throw ParserError(peek(), "Expected 'end' to close try-catch statement");
+    }
+    symbolTable.exitScope();
+    while (match(TokenType::NEWLINE)) {}
+    return std::make_unique<TryCatchStmt>(std::move(tryBody), exceptionVar, std::move(catchBody));
 }
 
 } // namespace MyCustomLang

@@ -18,6 +18,10 @@ void printToken(const Token& token) {
     std::cout << "Token: " << std::left << std::setw(20) << lexeme 
               << " (" << tokenTypeToString(token.type) << ") at line " 
               << token.line << "\n";
+    if (token.type == TokenType::NEWLINE || token.type == TokenType::UNKNOWN) {
+        std::cerr << "Debug: Detected " << tokenTypeToString(token.type) 
+                  << " token at line " << token.line << "\n";
+    }
 }
 
 void printAST(const Program& program) {

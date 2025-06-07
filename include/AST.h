@@ -424,6 +424,40 @@ public:
         }
     }
 };
+class ThrowStmt : public Stmt {
+public:
+    std::unique_ptr<Expr> expr;
+    ThrowStmt(std::unique_ptr<Expr> e) : expr(std::move(e)) {}
+    void print(std::ostream& os, int indent) const override {
+        printIndent(os, indent);
+        os << "ThrowStmt:\n";
+        expr->print(os, indent + 2);
+    }
+};
+class TryCatchStmt : public Stmt {
+public:
+    std::vector<StmtPtr> tryBody;
+    Token exceptionVar;
+    std::vector<StmtPtr> catchBody;
+    TryCatchStmt(std::vector<StmtPtr> t, Token e, std::vector<StmtPtr> c)
+        : tryBody(std::move(t)), exceptionVar(std::move(e)), catchBody(std::move(c)) {}
+    void print(std::ostream& os, int indent) const override {
+        printIndent(os, indent);
+        os << "TryCatchStmt:\n";
+        printIndent(os, indent + 1);
+        os << "Try Body:\n";
+        for (const auto& stmt : tryBody) {
+            stmt->print(os, indent + 2);
+        }
+        printIndent(os, indent + 1);
+        os << "Catch Variable: " << exceptionVar.lexeme << "\n";
+        printIndent(os, indent + 1);
+        os << "Catch Body:\n";
+        for (const auto& stmt : catchBody) {
+            stmt->print(os, indent + 2);
+        }
+    }
+};
 
 } // namespace MyCustomLang
 
