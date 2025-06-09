@@ -5,6 +5,8 @@
 #include "Lexer.h"
 #include "Parser.h"
 #include "SymbolTable.h"
+#include "SemanticAnalyzer.h"
+#include "Type.h"
 
 namespace MyCustomLang {
 
@@ -38,17 +40,17 @@ void printSymbolTable(const SymbolTable& symbolTable) {
         std::cout << "Scope " << i << ":\n";
         for (const auto& [name, symbol] : scopes[i]) {
             std::cout << "  Variable: " << name 
-                      << " (Type: " << tokenTypeToString(symbol.typeHint.type);
+                      << " (Type: " << typeToString(symbol.type); // Fixed: Use symbol.type
             if (symbol.isLong) {
                 std::cout << " LONG";
             }
-            if (symbol.typeHint.type == TokenType::FUNCTION) {
+            if (symbol.type == Type::FUNCTION) {
                 std::cout << ", Parameters: [";
                 for (size_t j = 0; j < symbol.parameters.size(); ++j) {
                     std::cout << symbol.parameters[j].lexeme;
                     if (j < symbol.parameters.size() - 1) std::cout << ", ";
                 }
-                std::cout << "]";
+                std::cout << "], Return Type: " << typeToString(symbol.returnType); // Added: Print return type
             }
             std::cout << ", Line: " << symbol.name.line << ")\n";
         }
@@ -90,9 +92,18 @@ int main() {
         std::cout << "Parsed " << tokens.size() << " tokens into " 
                   << ast.statements.size() << " statements.\n";
         MyCustomLang::printAST(ast);
+
+        // Add semantic analysis
+        MyCustomLang::SemanticAnalyzer analyzer(parser.getSymbolTable());
+        analyzer.analyze(ast);
+        std::cout << "Semantic analysis successful!\n";
+
         MyCustomLang::printSymbolTable(parser.getSymbolTable());
     } catch (const MyCustomLang::ParserError& e) {
         std::cerr << "Parsing failed at line " << e.token.line << ": " << e.what() << "\n";
+        return 1;
+    } catch (const MyCustomLang::SemanticError& e) {
+        std::cerr << e.what() << "\n";
         return 1;
     }
 

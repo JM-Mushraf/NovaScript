@@ -52,7 +52,7 @@ private:
 public:
     Parser(std::vector<Token> t);
     Program parse();
-    const SymbolTable& getSymbolTable() const { return symbolTable; }
+    SymbolTable& getSymbolTable() { return symbolTable; } // Fixed: Removed const from return type
 };
 
 class ParserError : public std::runtime_error {

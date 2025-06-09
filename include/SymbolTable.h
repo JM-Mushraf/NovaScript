@@ -2,6 +2,7 @@
 #define SYMBOL_TABLE_H
 
 #include "Token.h"
+#include "Type.h" // Include Type.h instead of forward declaration
 #include <string>
 #include <map>
 #include <vector>
@@ -11,15 +12,16 @@ namespace MyCustomLang {
 
 struct Symbol {
     Token name;
-    Token typeHint; // INTEGER, NONE, or FUNCTION
-    bool isLong;    // For long integers
+    Type type; // Use Type enum instead of Token typeHint (INTEGER, STRING, FUNCTION, etc.)
+    bool isLong; // For long integers
     std::vector<Token> parameters; // For functions
+    Type returnType; // Add for function return types
 
     // Default constructor
-    Symbol() : name(TokenType::UNKNOWN, "", 0), typeHint(TokenType::NONE, "", 0), isLong(false), parameters() {}
+    Symbol() : name(TokenType::UNKNOWN, "", 0), type(Type::NONE), isLong(false), parameters(), returnType(Type::NONE) {}
 
-    Symbol(Token n, Token t, bool l = false, std::vector<Token> p = {})
-        : name(std::move(n)), typeHint(std::move(t)), isLong(l), parameters(std::move(p)) {}
+    Symbol(Token n, Type t, bool l = false, std::vector<Token> p = {})
+        : name(std::move(n)), type(t), isLong(l), parameters(std::move(p)), returnType(Type::NONE) {}
 };
 
 class SymbolTable {
@@ -45,9 +47,10 @@ public:
         }
     }
 
-    void addSymbol(const Token& name, const Token& typeHint, bool isLong, const std::vector<Token>& params = {}) {
-        scopes[currentScope].emplace(name.lexeme, Symbol{name, typeHint, isLong, params});
-    }
+    void addSymbol(const Token& name, const Token& typeHint, bool isLong, const std::vector<Token>& params = {});
+
+    // Overload addSymbol to accept a Type directly (for semantic analyzer updates)
+    void addSymbol(const Token& name, Type type, bool isLong, const std::vector<Token>& params = {});
 
     bool symbolExists(const std::string& name) const {
         for (size_t i = currentScope; i < scopes.size(); i--) {
@@ -69,6 +72,12 @@ public:
         }
         throw std::runtime_error("Symbol '" + name + "' not found");
     }
+
+    // Add method to update a symbol's type (used by semantic analyzer)
+    void updateSymbolType(const std::string& name, Type type);
+
+    // Add method to update a function's return type (used by semantic analyzer)
+    void updateSymbolReturnType(const std::string& name, Type returnType);
 
     const std::vector<std::map<std::string, Symbol>>& getScopes() const {
         return scopes;

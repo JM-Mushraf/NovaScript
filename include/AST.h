@@ -2,6 +2,7 @@
 #define MYCUSTOMLANG_AST_H
 
 #include "Token.h"
+#include "Type.h" // Include Type.h for Type enum
 #include <memory>
 #include <vector>
 #include <string>
@@ -26,16 +27,21 @@ class Expr {
 public:
     virtual ~Expr() = default;
     virtual void print(std::ostream& os, int indent) const = 0;
+    virtual Token getToken() const = 0; // Added for semantic analyzer error reporting
+    Type inferredType = Type::NONE; // Added for type inference
 };
 
 class LiteralExpr : public Expr {
 public:
     Token value;
+    Type inferredType = Type::NONE; // Added
+
     explicit LiteralExpr(Token v) : value(std::move(v)) {}
     void print(std::ostream& os, int indent) const override {
         printIndent(os, indent);
         os << "LiteralExpr: " << value.lexeme << " (" << tokenTypeToString(value.type) << ")\n";
     }
+    Token getToken() const override { return value; } // Added
 private:
     static std::string tokenTypeToString(TokenType type) {
         switch (type) {
@@ -49,11 +55,14 @@ private:
 class VariableExpr : public Expr {
 public:
     Token name;
+    Type inferredType = Type::NONE; // Added
+
     explicit VariableExpr(Token n) : name(std::move(n)) {}
     void print(std::ostream& os, int indent) const override {
         printIndent(os, indent);
         os << "VariableExpr: " << name.lexeme << "\n";
     }
+    Token getToken() const override { return name; } // Added
 };
 
 class BinaryExpr : public Expr {
@@ -61,6 +70,8 @@ public:
     ExprPtr left;
     Token op;
     ExprPtr right;
+    Type inferredType = Type::NONE; // Added
+
     BinaryExpr(ExprPtr l, Token o, ExprPtr r)
         : left(std::move(l)), op(std::move(o)), right(std::move(r)) {}
     void print(std::ostream& os, int indent) const override {
@@ -69,6 +80,7 @@ public:
         left->print(os, indent + 1);
         right->print(os, indent + 1);
     }
+    Token getToken() const override { return op; } // Added
 private:
     static std::string tokenTypeToString(TokenType type) {
         switch (type) {
@@ -90,17 +102,22 @@ private:
 class ParenExpr : public Expr {
 public:
     ExprPtr expr;
+    Type inferredType = Type::NONE; // Added
+
     explicit ParenExpr(ExprPtr e) : expr(std::move(e)) {}
     void print(std::ostream& os, int indent) const override {
         printIndent(os, indent);
         os << "ParenExpr:\n";
         expr->print(os, indent + 1);
     }
+    Token getToken() const override { return expr->getToken(); } // Added
 };
 
 class ListLiteralExpr : public Expr {
 public:
     std::vector<ExprPtr> elements;
+    Type inferredType = Type::NONE; // Added
+
     explicit ListLiteralExpr(std::vector<ExprPtr> e) : elements(std::move(e)) {}
     void print(std::ostream& os, int indent) const override {
         printIndent(os, indent);
@@ -111,11 +128,16 @@ public:
             elements[i]->print(os, indent + 2);
         }
     }
+    Token getToken() const override { // Added
+        return elements.empty() ? Token(TokenType::LEFT_BRACKET, "[", 0) : elements[0]->getToken();
+    }
 };
 
 class DictLiteralExpr : public Expr {
 public:
     std::vector<std::pair<ExprPtr, ExprPtr>> entries;
+    Type inferredType = Type::NONE; // Added
+
     explicit DictLiteralExpr(std::vector<std::pair<ExprPtr, ExprPtr>> e) : entries(std::move(e)) {}
     void print(std::ostream& os, int indent) const override {
         printIndent(os, indent);
@@ -131,12 +153,17 @@ public:
             entries[i].second->print(os, indent + 3);
         }
     }
+    Token getToken() const override { // Added
+        return entries.empty() ? Token(TokenType::LEFT_BRACE, "{", 0) : entries[0].first->getToken();
+    }
 };
 
 class IndexExpr : public Expr {
 public:
     ExprPtr base;
     ExprPtr index;
+    Type inferredType = Type::NONE; // Added
+
     IndexExpr(ExprPtr b, ExprPtr i) : base(std::move(b)), index(std::move(i)) {}
     void print(std::ostream& os, int indent) const override {
         printIndent(os, indent);
@@ -148,12 +175,15 @@ public:
         os << "Index:\n";
         index->print(os, indent + 2);
     }
+    Token getToken() const override { return base->getToken(); } // Added
 };
 
 class AssignExpr : public Expr {
 public:
     Token name;
     ExprPtr value;
+    Type inferredType = Type::NONE; // Added
+
     AssignExpr(Token n, ExprPtr v) : name(std::move(n)), value(std::move(v)) {}
     void print(std::ostream& os, int indent) const override {
         printIndent(os, indent);
@@ -162,12 +192,15 @@ public:
         os << "Value:\n";
         value->print(os, indent + 2);
     }
+    Token getToken() const override { return name; } // Added
 };
 
 class IndexAssignExpr : public Expr {
 public:
     ExprPtr target;
     ExprPtr value;
+    Type inferredType = Type::NONE; // Added
+
     IndexAssignExpr(ExprPtr t, ExprPtr v) : target(std::move(t)), value(std::move(v)) {}
     void print(std::ostream& os, int indent) const override {
         printIndent(os, indent);
@@ -179,13 +212,15 @@ public:
         os << "Value:\n";
         value->print(os, indent + 2);
     }
+    Token getToken() const override { return target->getToken(); } // Added
 };
 
-// Add after class IndexAssignExpr : public Expr { ... }
 class CallExpr : public Expr {
 public:
     Token name;
     std::vector<ExprPtr> arguments;
+    Type inferredType = Type::NONE; // Added
+
     CallExpr(Token n, std::vector<ExprPtr> args)
         : name(std::move(n)), arguments(std::move(args)) {}
     void print(std::ostream& os, int indent) const override {
@@ -199,6 +234,7 @@ public:
             arguments[i]->print(os, indent + 3);
         }
     }
+    Token getToken() const override { return name; } // Added
 };
 
 class Stmt {
@@ -213,6 +249,8 @@ public:
     ExprPtr init;
     Token typeHint;
     bool isLong;
+    Type declaredType = Type::NONE; // Added for type checking
+
     VarDeclStmt(Token n, ExprPtr i, Token t = Token(TokenType::NONE, "", 0), bool l = false)
         : name(std::move(n)), init(std::move(i)), typeHint(std::move(t)), isLong(l) {}
     void print(std::ostream& os, int indent) const override {
@@ -437,6 +475,8 @@ public:
     Token name;
     std::vector<Token> parameters;
     std::vector<StmtPtr> body;
+    Type returnType = Type::NONE; // Added for return type inference
+
     FunctionDefStmt(Token n, std::vector<Token> params, std::vector<StmtPtr> b)
         : name(std::move(n)), parameters(std::move(params)), body(std::move(b)) {}
     void print(std::ostream& os, int indent) const override {
@@ -471,7 +511,7 @@ public:
             for (size_t i = 0; i < arguments.size(); ++i) {
                 printIndent(os, indent + 2);
                 os << "Arg " << i << ":\n";
-                arguments[i]->print(os, indent + 3);
+                arguments[i].get()->print(os, indent + 3);
             }
         }
     }
@@ -489,6 +529,7 @@ public:
         }
     }
 };
+
 class ThrowStmt : public Stmt {
 public:
     std::unique_ptr<Expr> expr;
@@ -499,6 +540,7 @@ public:
         expr->print(os, indent + 2);
     }
 };
+
 class TryCatchStmt : public Stmt {
 public:
     std::vector<StmtPtr> tryBody;
@@ -526,14 +568,17 @@ public:
 
 class ReturnStmt : public Stmt {
 public:
+    ExprPtr value;
+    Type returnType = Type::NONE; // Added for return type
+
     ReturnStmt(ExprPtr value) : value(std::move(value)) {}
     void print(std::ostream& os, int indent) const override {
         printIndent(os, indent);
         os << "ReturnStmt:\n";
         if (value) value->print(os, indent + 1);
     }
-    ExprPtr value;
 };
+
 } // namespace MyCustomLang
 
 #endif // MYCUSTOMLANG_AST_H

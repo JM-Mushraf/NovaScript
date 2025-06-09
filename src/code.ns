@@ -1,12 +1,9 @@
-define function max(a, b)
-    when (a > b) then
-        return a
-    otherwise
-        return b
-    end
+
+let a be 12.12
+let b be 10
+
+when (a > b) then
+    say "a is greater"
+otherwise
+    say "b is greater"
 end
-define function main(x, y)
-    let z be max(x, y) + 5
-    say z
-end
-call main(10, 20)

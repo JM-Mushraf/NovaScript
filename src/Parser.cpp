@@ -170,6 +170,8 @@ StmtPtr Parser::parseVarDecl() {
             if (match(TokenType::LONG)) {
                 isLong = true;
             }
+        } else if (match(TokenType::STRING)) {
+            typeHint = previous();
         } else {
             throw ParserError(peek(), "Expected type hint after 'as'");
         }
@@ -182,7 +184,7 @@ StmtPtr Parser::parseVarDecl() {
         }
     }
 
-    symbolTable.addSymbol(name, typeHint, isLong, {});
+    symbolTable.addSymbol(name, typeHint, isLong); // Fixed: Removed extra 'type' argument
 
     while (match(TokenType::NEWLINE)) {}
 
@@ -190,39 +192,26 @@ StmtPtr Parser::parseVarDecl() {
 }
 
 StmtPtr Parser::parseSetStmt() {
-    ExprPtr target = parsePrimary();
-    if (!match(TokenType::AS)) {
-        throw ParserError(peek(), "Expected 'as' after target in 'set' statement");
+    Token name = advance();
+    if (name.type != TokenType::IDENTIFIER) {
+        throw ParserError(name, "Expected identifier after 'set'");
+    }
+    if (!symbolTable.symbolExists(name.lexeme)) {
+        throw ParserError(name, "Variable '" + name.lexeme + "' not declared");
+    }
+    Symbol symbol = symbolTable.getSymbol(name.lexeme);
+    if (symbol.type == Type::INTEGER) { // Fixed: Use symbol.type
+        if (!match(TokenType::TO)) {
+            throw ParserError(peek(), "Expected 'to' after identifier in 'set' statement");
+        }
+    } else {
+        if (!match(TokenType::EQUAL)) {
+            throw ParserError(peek(), "Expected '=' after identifier in 'set' statement");
+        }
     }
     ExprPtr value = parseExpr();
-    if (auto* indexExpr = dynamic_cast<IndexExpr*>(target.get())) {
-        while (match(TokenType::NEWLINE)) {}
-        return std::make_unique<IndexAssignStmt>(std::move(target), std::move(value));
-    }
-    if (auto* varExpr = dynamic_cast<VariableExpr*>(target.get())) {
-        if (!symbolTable.symbolExists(varExpr->name.lexeme)) {
-            throw ParserError(varExpr->name, "Variable '" + varExpr->name.lexeme + "' not declared");
-        }
-        Symbol symbol = symbolTable.getSymbol(varExpr->name.lexeme);
-        if (symbol.typeHint.type == TokenType::INTEGER) {
-            if (auto* literal = dynamic_cast<LiteralExpr*>(value.get())) {
-                if (literal->value.type != TokenType::NUMBER) {
-                    throw ParserError(literal->value, "Type mismatch: expected INTEGER");
-                }
-            } else if (auto* binary = dynamic_cast<BinaryExpr*>(value.get())) {
-                // Assume binary operations (+, -, *, /) on numbers yield numbers
-                if (binary->op.type != TokenType::PLUS && binary->op.type != TokenType::MINUS &&
-                    binary->op.type != TokenType::STAR && binary->op.type != TokenType::SLASH) {
-                    throw ParserError(binary->op, "Type mismatch: expected INTEGER operation");
-                }
-            } else {
-                throw ParserError(peek(), "Type mismatch: expected INTEGER expression");
-            }
-        }
-        while (match(TokenType::NEWLINE)) {}
-        return std::make_unique<SetStmt>(varExpr->name, std::move(value));
-    }
-    throw ParserError(previous(), "Invalid target for 'set' statement (must be variable or index)");
+    while (match(TokenType::NEWLINE)) {}
+    return std::make_unique<SetStmt>(name, std::move(value));
 }
 
 StmtPtr Parser::parseWhenStmt() {
@@ -488,6 +477,13 @@ ExprPtr Parser::parsePrimary() {
         if (check(TokenType::LEFT_PAREN)) {
             advance(); // Consume LEFT_PAREN
             std::vector<ExprPtr> arguments;
+            if (!symbolTable.symbolExists(name.lexeme)) {
+                throw ParserError(name, "Function '" + name.lexeme + "' not declared");
+            }
+            Symbol symbol = symbolTable.getSymbol(name.lexeme);
+            if (symbol.type != Type::FUNCTION) { // Fixed: Use symbol.type instead of symbol.typeHint.type
+                throw ParserError(name, "'" + name.lexeme + "' is not a function");
+            }
             if (!check(TokenType::RIGHT_PAREN)) {
                 do {
                     arguments.push_back(parseExpr());
@@ -495,13 +491,6 @@ ExprPtr Parser::parsePrimary() {
             }
             if (!match(TokenType::RIGHT_PAREN)) {
                 throw ParserError(peek(), "Expected ')' after function arguments");
-            }
-            if (!symbolTable.symbolExists(name.lexeme)) {
-                throw ParserError(name, "Function '" + name.lexeme + "' not declared");
-            }
-            Symbol symbol = symbolTable.getSymbol(name.lexeme);
-            if (symbol.typeHint.type != TokenType::FUNCTION) {
-                throw ParserError(name, "'" + name.lexeme + "' is not a function");
             }
             return std::make_unique<CallExpr>(name, std::move(arguments));
         }
@@ -602,7 +591,7 @@ StmtPtr Parser::parseTryCatchStmt() {
     return std::make_unique<TryCatchStmt>(std::move(tryBody), exceptionVar, std::move(catchBody));
 }
 
-    StmtPtr Parser::parseFunctionDef() {
+StmtPtr Parser::parseFunctionDef() {
     Token name = advance();
     if (name.type != TokenType::IDENTIFIER) {
         throw ParserError(name, "Expected function name after 'define function'");
@@ -626,11 +615,10 @@ StmtPtr Parser::parseTryCatchStmt() {
     if (!match(TokenType::RIGHT_PAREN)) {
         throw ParserError(peek(), "Expected ')' after parameters");
     }
-    // Add function to symbol table *before* entering new scope
-    symbolTable.addSymbol(name, Token(TokenType::FUNCTION, "function", name.line), false, parameters);
+    symbolTable.addSymbol(name, Type::FUNCTION, false, parameters); // Use Type::FUNCTION
     symbolTable.enterScope();
     for (const auto& param : parameters) {
-        symbolTable.addSymbol(param, Token(TokenType::NONE, "", param.line), false);
+        symbolTable.addSymbol(param, Token(TokenType::NONE, "", param.line), false); // Fixed
     }
     if (!match(TokenType::INDENT)) {
         throw ParserError(peek(), "Expected indentation after function definition");
@@ -647,55 +635,48 @@ StmtPtr Parser::parseTryCatchStmt() {
     return std::make_unique<FunctionDefStmt>(name, std::move(parameters), std::move(body));
 }
 ExprPtr Parser::parseCallExpr() {
-    Token name = advance(); // Consume the IDENTIFIER
-    if (name.type != TokenType::IDENTIFIER) {
-        throw ParserError(name, "Expected function name in call expression");
-    }
-    if (!match(TokenType::LEFT_PAREN)) {
-        // If no paren, treat as a variable (not a call)
-        return std::make_unique<VariableExpr>(name);
-    }
+    Token name = previous();
     std::vector<ExprPtr> arguments;
-    if (!check(TokenType::RIGHT_PAREN)) {
-        do {
-            arguments.push_back(parseExpr()); // Parse each argument as an expression
-        } while (match(TokenType::COMMA));
-    }
-    if (!match(TokenType::RIGHT_PAREN)) {
-        throw ParserError(peek(), "Expected ')' after function arguments");
-    }
     if (!symbolTable.symbolExists(name.lexeme)) {
         throw ParserError(name, "Function '" + name.lexeme + "' not declared");
     }
     Symbol symbol = symbolTable.getSymbol(name.lexeme);
-    if (symbol.typeHint.type != TokenType::FUNCTION) {
+    if (symbol.type != Type::FUNCTION) { // Fixed: Use symbol.type
         throw ParserError(name, "'" + name.lexeme + "' is not a function");
+    }
+    if (!check(TokenType::RIGHT_PAREN)) {
+        do {
+            arguments.push_back(parseExpr());
+        } while (match(TokenType::COMMA));
+    }
+    if (!match(TokenType::RIGHT_PAREN)) {
+        throw ParserError(peek(), "Expected ')' after arguments");
     }
     return std::make_unique<CallExpr>(name, std::move(arguments));
 }
 StmtPtr Parser::parseCallStmt() {
-    Token name = advance(); // Consume the IDENTIFIER
+    Token name = advance();
     if (name.type != TokenType::IDENTIFIER) {
         throw ParserError(name, "Expected function name after 'call'");
     }
-    if (!match(TokenType::LEFT_PAREN)) {
-        throw ParserError(peek(), "Expected '(' after function name in call statement");
-    }
     std::vector<ExprPtr> arguments;
-    if (!check(TokenType::RIGHT_PAREN)) {
-        do {
-            arguments.push_back(parseExpr()); // Parse each argument as an expression
-        } while (match(TokenType::COMMA));
-    }
-    if (!match(TokenType::RIGHT_PAREN)) {
-        throw ParserError(peek(), "Expected ')' after function arguments");
-    }
     if (!symbolTable.symbolExists(name.lexeme)) {
         throw ParserError(name, "Function '" + name.lexeme + "' not declared");
     }
     Symbol symbol = symbolTable.getSymbol(name.lexeme);
-    if (symbol.typeHint.type != TokenType::FUNCTION) {
+    if (symbol.type != Type::FUNCTION) { // Fixed: Use symbol.type
         throw ParserError(name, "'" + name.lexeme + "' is not a function");
+    }
+    if (!match(TokenType::LEFT_PAREN)) {
+        throw ParserError(peek(), "Expected '(' after function name in 'call'");
+    }
+    if (!check(TokenType::RIGHT_PAREN)) {
+        do {
+            arguments.push_back(parseExpr());
+        } while (match(TokenType::COMMA));
+    }
+    if (!match(TokenType::RIGHT_PAREN)) {
+        throw ParserError(peek(), "Expected ')' after arguments");
     }
     while (match(TokenType::NEWLINE)) {}
     return std::make_unique<CallStmt>(name, std::move(arguments));
