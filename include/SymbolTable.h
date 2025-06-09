@@ -2,7 +2,7 @@
 #define SYMBOL_TABLE_H
 
 #include "Token.h"
-#include "Type.h" // Include Type.h instead of forward declaration
+#include "Type.h"
 #include <string>
 #include <map>
 #include <vector>
@@ -12,14 +12,12 @@ namespace MyCustomLang {
 
 struct Symbol {
     Token name;
-    Type type; // Use Type enum instead of Token typeHint (INTEGER, STRING, FUNCTION, etc.)
-    bool isLong; // For long integers
-    std::vector<Token> parameters; // For functions
-    Type returnType; // Add for function return types
+    Type type;
+    bool isLong;
+    std::vector<Token> parameters;
+    Type returnType;
 
-    // Default constructor
     Symbol() : name(TokenType::UNKNOWN, "", 0), type(Type::NONE), isLong(false), parameters(), returnType(Type::NONE) {}
-
     Symbol(Token n, Type t, bool l = false, std::vector<Token> p = {})
         : name(std::move(n)), type(t), isLong(l), parameters(std::move(p)), returnType(Type::NONE) {}
 };
@@ -27,7 +25,7 @@ struct Symbol {
 class SymbolTable {
 private:
     std::vector<std::map<std::string, Symbol>> scopes;
-    size_t currentScope; // Track the active scope
+    size_t currentScope;
 
 public:
     SymbolTable() : currentScope(0) {
@@ -41,29 +39,20 @@ public:
 
     void exitScope() {
         if (currentScope > 0) {
-            currentScope--; // Move back to parent scope, but keep the scope in scopes
+            currentScope--;
         } else {
             throw std::runtime_error("Cannot exit global scope");
         }
     }
 
     void addSymbol(const Token& name, const Token& typeHint, bool isLong, const std::vector<Token>& params = {});
-
-    // Overload addSymbol to accept a Type directly (for semantic analyzer updates)
     void addSymbol(const Token& name, Type type, bool isLong, const std::vector<Token>& params = {});
 
-    bool symbolExists(const std::string& name) const {
-        for (size_t i = currentScope; i < scopes.size(); i--) {
-            if (scopes[i].find(name) != scopes[i].end()) {
-                return true;
-            }
-            if (i == 0) break; // Stop at global scope
-        }
-        return false;
-    }
+    bool symbolExists(const std::string& name) const;
+    bool symbolExistsInCurrentScope(const std::string& name) const; // New method
 
     Symbol getSymbol(const std::string& name) const {
-        for (size_t i = currentScope; i < scopes.size(); i--) {
+        for (size_t i = currentScope; ; --i) {
             auto sym = scopes[i].find(name);
             if (sym != scopes[i].end()) {
                 return sym->second;
@@ -73,10 +62,7 @@ public:
         throw std::runtime_error("Symbol '" + name + "' not found");
     }
 
-    // Add method to update a symbol's type (used by semantic analyzer)
     void updateSymbolType(const std::string& name, Type type);
-
-    // Add method to update a function's return type (used by semantic analyzer)
     void updateSymbolReturnType(const std::string& name, Type returnType);
 
     const std::vector<std::map<std::string, Symbol>>& getScopes() const {

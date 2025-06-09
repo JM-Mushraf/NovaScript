@@ -14,8 +14,22 @@ void SymbolTable::addSymbol(const Token& name, Type type, bool isLong, const std
     scopes[currentScope].emplace(name.lexeme, Symbol{name, type, isLong, params});
 }
 
+bool SymbolTable::symbolExists(const std::string& name) const {
+    for (size_t i = currentScope; ; --i) {
+        if (scopes[i].find(name) != scopes[i].end()) {
+            return true;
+        }
+        if (i == 0) break;
+    }
+    return false;
+}
+
+bool SymbolTable::symbolExistsInCurrentScope(const std::string& name) const {
+    return scopes[currentScope].find(name) != scopes[currentScope].end();
+}
+
 void SymbolTable::updateSymbolType(const std::string& name, Type type) {
-    for (size_t i = currentScope; i < scopes.size(); i--) {
+    for (size_t i = currentScope; ; --i) {
         auto sym = scopes[i].find(name);
         if (sym != scopes[i].end()) {
             sym->second.type = type;
@@ -27,7 +41,7 @@ void SymbolTable::updateSymbolType(const std::string& name, Type type) {
 }
 
 void SymbolTable::updateSymbolReturnType(const std::string& name, Type returnType) {
-    for (size_t i = 0; i < scopes.size(); i++) { // Start from global scope
+    for (size_t i = 0; i < scopes.size(); i++) {
         auto sym = scopes[i].find(name);
         if (sym != scopes[i].end()) {
             sym->second.returnType = returnType;

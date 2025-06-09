@@ -1,9 +1,4 @@
-
-let a be 12.12
-let b be 10
-
-when (a > b) then
-    say "a is greater"
-otherwise
-    say "b is greater"
+let s be "hello"
+repeat while s < 5
+    say s
 end

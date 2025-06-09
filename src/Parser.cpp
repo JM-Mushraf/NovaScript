@@ -153,7 +153,7 @@ StmtPtr Parser::parseVarDecl() {
     if (name.type != TokenType::IDENTIFIER) {
         throw ParserError(name, "Expected identifier after 'let'");
     }
-    if (symbolTable.symbolExists(name.lexeme)) {
+    if (symbolTable.symbolExistsInCurrentScope(name.lexeme)) { // Changed from symbolExists
         throw ParserError(name, "Variable '" + name.lexeme + "' already declared in this scope");
     }
 
@@ -184,13 +184,12 @@ StmtPtr Parser::parseVarDecl() {
         }
     }
 
-    symbolTable.addSymbol(name, typeHint, isLong); // Fixed: Removed extra 'type' argument
+    symbolTable.addSymbol(name, typeHint, isLong);
 
     while (match(TokenType::NEWLINE)) {}
 
     return std::make_unique<VarDeclStmt>(name, std::move(init), typeHint, isLong);
 }
-
 StmtPtr Parser::parseSetStmt() {
     Token name = advance();
     if (name.type != TokenType::IDENTIFIER) {
@@ -215,8 +214,9 @@ StmtPtr Parser::parseSetStmt() {
 }
 
 StmtPtr Parser::parseWhenStmt() {
-    symbolTable.enterScope();
     std::vector<WhenStmt::Branch> branches;
+    
+    // Parse the first condition in the current (outer) scope
     ExprPtr condition = parseExpr();
     if (!match(TokenType::THEN)) {
         throw ParserError(peek(), "Expected 'then' after condition");
@@ -224,14 +224,20 @@ StmtPtr Parser::parseWhenStmt() {
     if (!match(TokenType::INDENT)) {
         throw ParserError(peek(), "Expected indentation after 'then'");
     }
+    
+    // Enter a new scope for the first branch's body
+    symbolTable.enterScope();
     auto body = parseStmtList();
+    symbolTable.exitScope();
     branches.emplace_back(std::move(condition), std::move(body));
 
+    // Handle additional branches (otherwise when, otherwise)
     while (check(TokenType::DEDENT) && checkNext(TokenType::OTHERWISE)) {
         match(TokenType::DEDENT);
         match(TokenType::OTHERWISE);
         if (check(TokenType::WHEN)) {
             advance();
+            // Parse the condition in the current (outer) scope
             condition = parseBinaryExpr();
             if (!match(TokenType::THEN)) {
                 throw ParserError(peek(), "Expected 'then' after condition");
@@ -239,13 +245,19 @@ StmtPtr Parser::parseWhenStmt() {
             if (!match(TokenType::INDENT)) {
                 throw ParserError(peek(), "Expected indentation after 'then'");
             }
+            // Enter a new scope for this branch's body
+            symbolTable.enterScope();
             body = parseStmtList();
+            symbolTable.exitScope();
             branches.emplace_back(std::move(condition), std::move(body));
         } else {
             if (!match(TokenType::INDENT)) {
                 throw ParserError(peek(), "Expected indentation after 'otherwise'");
             }
+            // Enter a new scope for the 'otherwise' branch's body
+            symbolTable.enterScope();
             body = parseStmtList();
+            symbolTable.exitScope();
             branches.emplace_back(nullptr, std::move(body));
         }
     }
@@ -256,7 +268,6 @@ StmtPtr Parser::parseWhenStmt() {
     if (!match(TokenType::END)) {
         throw ParserError(peek(), "Expected 'end' to close 'when' statement");
     }
-    symbolTable.exitScope();
     while (match(TokenType::NEWLINE)) {}
     return std::make_unique<WhenStmt>(std::move(branches));
 }
@@ -517,6 +528,25 @@ ExprPtr Parser::parsePrimary() {
         }
         return std::make_unique<ParenExpr>(std::move(expr));
     }
+    if (match(TokenType::CALL)) {
+    Token name = advance();
+    if (name.type != TokenType::IDENTIFIER) {
+        throw ParserError(name, "Expected function name after 'call'");
+    }
+    if (!match(TokenType::LEFT_PAREN)) {
+        throw ParserError(peek(), "Expected '(' after function name");
+    }
+    std::vector<ExprPtr> arguments;
+    if (!check(TokenType::RIGHT_PAREN)) {
+        do {
+            arguments.push_back(parseExpr());
+        } while (match(TokenType::COMMA));
+    }
+    if (!match(TokenType::RIGHT_PAREN)) {
+        throw ParserError(peek(), "Expected ')' after arguments");
+    }
+    return std::make_unique<CallExpr>(name, std::move(arguments));
+}
     throw ParserError(peek(), "Expected expression");
 }
 
@@ -618,8 +648,8 @@ StmtPtr Parser::parseFunctionDef() {
     symbolTable.addSymbol(name, Type::FUNCTION, false, parameters); // Use Type::FUNCTION
     symbolTable.enterScope();
     for (const auto& param : parameters) {
-        symbolTable.addSymbol(param, Token(TokenType::NONE, "", param.line), false); // Fixed
-    }
+    symbolTable.addSymbol(param, Type::INTEGER, false, {});
+}
     if (!match(TokenType::INDENT)) {
         throw ParserError(peek(), "Expected indentation after function definition");
     }
