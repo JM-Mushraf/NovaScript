@@ -1,4 +1,5 @@
-let s be "hello"
-repeat while s < 5
-    say s
+try
+    let a be 10
+catch error
+    say error
 end

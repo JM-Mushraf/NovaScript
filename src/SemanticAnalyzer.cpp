@@ -105,7 +105,7 @@ void SemanticAnalyzer::analyzeStmt(Stmt* stmt) {
             }
         }
     }
-    funcDef->returnType = inferredReturnType;
+    symbolTable.updateSymbolReturnType(funcDef->name.lexeme, inferredReturnType);
     symbolTable.updateSymbolReturnType(funcDef->name.lexeme, inferredReturnType);
     symbolTable.exitScope();
 } else if (auto* callStmt = dynamic_cast<CallStmt*>(stmt)) {

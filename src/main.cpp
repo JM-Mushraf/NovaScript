@@ -6,6 +6,7 @@
 #include "Parser.h"
 #include "SymbolTable.h"
 #include "SemanticAnalyzer.h"
+#include "Interpreter.h" // Added for interpreter phase
 #include "Type.h"
 
 namespace MyCustomLang {
@@ -40,7 +41,7 @@ void printSymbolTable(const SymbolTable& symbolTable) {
         std::cout << "Scope " << i << ":\n";
         for (const auto& [name, symbol] : scopes[i]) {
             std::cout << "  Variable: " << name 
-                      << " (Type: " << typeToString(symbol.type); // Fixed: Use symbol.type
+                      << " (Type: " << typeToString(symbol.type);
             if (symbol.isLong) {
                 std::cout << " LONG";
             }
@@ -50,7 +51,7 @@ void printSymbolTable(const SymbolTable& symbolTable) {
                     std::cout << symbol.parameters[j].lexeme;
                     if (j < symbol.parameters.size() - 1) std::cout << ", ";
                 }
-                std::cout << "], Return Type: " << typeToString(symbol.returnType); // Added: Print return type
+                std::cout << "], Return Type: " << typeToString(symbol.returnType);
             }
             std::cout << ", Line: " << symbol.name.line << ")\n";
         }
@@ -98,12 +99,22 @@ int main() {
         analyzer.analyze(ast);
         std::cout << "Semantic analysis successful!\n";
 
-        MyCustomLang::printSymbolTable(parser.getSymbolTable());
+        MyCustomLang::printSymbolTable(analyzer.getSymbolTable()); // Changed to use analyzer's symbol table
+
+        // Add interpreter phase
+        std::cout << "\nInterpreting program...\n";
+        MyCustomLang::Interpreter interpreter(analyzer.getSymbolTable());
+        interpreter.interpret(ast);
+        std::cout << "Interpretation successful!\n";
+
     } catch (const MyCustomLang::ParserError& e) {
         std::cerr << "Parsing failed at line " << e.token.line << ": " << e.what() << "\n";
         return 1;
     } catch (const MyCustomLang::SemanticError& e) {
         std::cerr << e.what() << "\n";
+        return 1;
+    } catch (const std::runtime_error& e) { // Catch runtime errors from interpreter
+        std::cerr << "Runtime error: " << e.what() << "\n";
         return 1;
     }
 
