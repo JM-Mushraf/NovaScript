@@ -190,6 +190,7 @@ StmtPtr Parser::parseVarDecl() {
 
     return std::make_unique<VarDeclStmt>(name, std::move(init), typeHint, isLong);
 }
+// In Parser::parseSetStmt()
 StmtPtr Parser::parseSetStmt() {
     Token name = advance();
     if (name.type != TokenType::IDENTIFIER) {
@@ -198,15 +199,25 @@ StmtPtr Parser::parseSetStmt() {
     if (!symbolTable.symbolExists(name.lexeme)) {
         throw ParserError(name, "Variable '" + name.lexeme + "' not declared");
     }
-    Symbol symbol = symbolTable.getSymbol(name.lexeme);
-    if (symbol.type == Type::INTEGER) { // Fixed: Use symbol.type
-        if (!match(TokenType::TO)) {
-            throw ParserError(peek(), "Expected 'to' after identifier in 'set' statement");
+    
+    // Handle index assignment (list[index] = value)
+    if (match(TokenType::LEFT_BRACKET)) {
+        ExprPtr index = parseExpr();
+        if (!match(TokenType::RIGHT_BRACKET)) {
+            throw ParserError(peek(), "Expected ']' after index");
         }
-    } else {
         if (!match(TokenType::EQUAL)) {
-            throw ParserError(peek(), "Expected '=' after identifier in 'set' statement");
+            throw ParserError(peek(), "Expected '=' after index expression");
         }
+        ExprPtr value = parseExpr();
+        ExprPtr target = std::make_unique<VariableExpr>(name);
+        ExprPtr indexExpr = std::make_unique<IndexExpr>(std::move(target), std::move(index));
+        return std::make_unique<IndexAssignStmt>(std::move(indexExpr), std::move(value));
+    }
+    
+    // Regular assignment
+    if (!match(TokenType::EQUAL)) {
+        throw ParserError(peek(), "Expected '=' after identifier in 'set' statement");
     }
     ExprPtr value = parseExpr();
     while (match(TokenType::NEWLINE)) {}

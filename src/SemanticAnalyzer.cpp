@@ -85,30 +85,37 @@ void SemanticAnalyzer::analyzeStmt(Stmt* stmt) {
         }
         symbolTable.exitScope();
     } else if (auto* funcDef = dynamic_cast<FunctionDefStmt*>(stmt)) {
-    symbolTable.enterScope();
-    for (const auto& param : funcDef->parameters) {
-        symbolTable.addSymbol(param, Type::INTEGER, false); // Set INTEGER for parameters
-    }
-    Type inferredReturnType = Type::NONE;
-    for (auto& s : funcDef->body) {
-        analyzeStmt(s.get());
-        if (auto* returnStmt = dynamic_cast<ReturnStmt*>(s.get())) {
-            if (returnStmt->value) {
-                analyzeExpr(returnStmt->value.get()); // Ensure expression is analyzed
-                Type returnType = returnStmt->value->inferredType;
-                returnStmt->returnType = returnType;
-                if (inferredReturnType == Type::NONE) {
-                    inferredReturnType = returnType;
-                } else if (returnType != Type::NONE && returnType != inferredReturnType) {
-                    throw SemanticError(returnStmt->value->getToken(), "Inconsistent return type in function");
+        symbolTable.enterScope();
+        for (const auto& param : funcDef->parameters) {
+            if (args.size() != func->parameters.size()) {
+                throw std::runtime_error("Function " + call->name.lexeme + " expected " +
+                                    std::to_string(func->parameters.size()) + " arguments but got " +
+                                    std::to_string(args.size()));
+            }
+        symbolTable.enterScope();
+        for (const auto& param : funcDef->parameters) {
+            symbolTable.addSymbol(param, Type::INTEGER, false); // Set INTEGER for parameters
+        }
+        Type inferredReturnType = Type::NONE;
+        for (auto& s : funcDef->body) {
+            analyzeStmt(s.get());
+            if (auto* returnStmt = dynamic_cast<ReturnStmt*>(s.get())) {
+                if (returnStmt->value) {
+                    analyzeExpr(returnStmt->value.get());
+                    Type returnType = returnStmt->value->inferredType;
+                    returnStmt->returnType = returnType;
+                    if (inferredReturnType == Type::NONE) {
+                        inferredReturnType = returnType;
+                    } else if (returnType != Type::NONE && returnType != inferredReturnType) {
+                        throw SemanticError(returnStmt->value->getToken(), "Inconsistent return type in function");
+                    }
                 }
             }
         }
-    }
-    symbolTable.updateSymbolReturnType(funcDef->name.lexeme, inferredReturnType);
-    symbolTable.updateSymbolReturnType(funcDef->name.lexeme, inferredReturnType);
-    symbolTable.exitScope();
-} else if (auto* callStmt = dynamic_cast<CallStmt*>(stmt)) {
+        symbolTable.updateSymbolReturnType(funcDef->name.lexeme, inferredReturnType);
+        symbolTable.updateSymbolReturnType(funcDef->name.lexeme, inferredReturnType);
+        symbolTable.exitScope();
+    } else if (auto* callStmt = dynamic_cast<CallStmt*>(stmt)) {
         Symbol sym = symbolTable.getSymbol(callStmt->name.lexeme);
         if (sym.type != Type::FUNCTION) {
             throw SemanticError(callStmt->name, "'" + callStmt->name.lexeme + "' is not a function");
@@ -134,7 +141,7 @@ void SemanticAnalyzer::analyzeStmt(Stmt* stmt) {
             analyzeStmt(s.get());
         }
         symbolTable.enterScope();
-        symbolTable.addSymbol(tryCatch->exceptionVar, Type::STRING, false);
+        symbolTable.addSymbol(tryCatch->exceptionName, Type::STRING, false);
         for (auto& s : tryCatch->catchBody) {
             analyzeStmt(s.get());
         }
@@ -162,7 +169,28 @@ void SemanticAnalyzer::analyzeExpr(Expr* expr) {
 }
 
 Type SemanticAnalyzer::inferExprType(Expr* expr) {
-    if (auto* literal = dynamic_cast<LiteralExpr*>(expr)) {
+    if (auto* list = dynamic_cast<ListLiteralExpr*>(expr)) {
+        if (!list->elements.empty()) {
+            Type elementType = inferExprType(list->elements[0].get());
+            for (size_t i = 1; i < list->elements.size(); ++i++) {
+                Type currentType = inferExprType(list->elements[i]->get());
+                if (currentType != elementType && currentType != Type::NONE) {
+                    throw SemanticError(list->elements[i]->getToken(), 
+                        "All list elements must have the same type");
+                }
+            }
+        }
+        return Type::LIST;
+    } else if (auto* dict = dynamic_cast<DictLiteralExpr*>(expr)) {
+        for (const auto& entry : dict->entries) {
+            Type keyType = inferExprType(entry.first.get());
+            if (keyType != Type::STRING) {
+                throw SemanticError(entry.first->getToken(), 
+                    "Dictionary keys must be strings");
+            }
+        }
+        return Type::DICT;
+    } else if (auto* literal = dynamic_cast<LiteralExpr*>(expr)) {
         if (literal->value.type == TokenType::NUMBER) return Type::INTEGER;
         if (literal->value.type == TokenType::STRING) return Type::STRING;
         return Type::ERROR;
@@ -182,7 +210,7 @@ Type SemanticAnalyzer::inferExprType(Expr* expr) {
                 }
                 binary->left->inferredType = Type::INTEGER;
                 if (rightType != Type::INTEGER) {
-                    throw SemanticError(binary->right->getToken(), "Right operand must be an integer");
+                    throw SemanticError(binary->right->getToken(), "Right operand type");
                 }
                 binary->right->inferredType = Type::INTEGER;
                 return Type::ERROR;
@@ -192,9 +220,7 @@ Type SemanticAnalyzer::inferExprType(Expr* expr) {
             case TokenType::LESS_EQUAL:
             case TokenType::EQUAL_EQUAL:
             case TokenType::NOT_EQUAL:
-                // Disallow comparisons if types are NONE
                 if (leftType == Type::NONE || rightType == Type::NONE) {
-                    // If the operand is a variable, infer its type as INTEGER and update the symbol table
                     if (leftType == Type::NONE) {
                         if (auto* var = dynamic_cast<VariableExpr*>(binary->left.get())) {
                             symbolTable.updateSymbolType(var->name.lexeme, Type::INTEGER);
@@ -209,7 +235,6 @@ Type SemanticAnalyzer::inferExprType(Expr* expr) {
                             binary->right->inferredType = Type::INTEGER;
                         }
                     }
-                    // If still NONE, throw an error
                     if (leftType == Type::NONE || rightType == Type::NONE) {
                         throw SemanticError(binary->op, "Cannot compare operands with unknown types");
                     }
@@ -223,35 +248,6 @@ Type SemanticAnalyzer::inferExprType(Expr* expr) {
         }
     } else if (auto* paren = dynamic_cast<ParenExpr*>(expr)) {
         return inferExprType(paren->expr.get());
-    } else if (auto* list = dynamic_cast<ListLiteralExpr*>(expr)) {
-        Type elementType = Type::NONE;
-        for (auto& elem : list->elements) {
-            Type type = inferExprType(elem.get());
-            if (elementType == Type::NONE) {
-                elementType = type;
-            } else if (elem->inferredType != elementType && elem->inferredType != Type::NONE) {
-                throw SemanticError(elem->getToken(), "All elements in a list must have the same type");
-            }
-        }
-        return Type::LIST;
-    } else if (auto* dict = dynamic_cast<DictLiteralExpr*>(expr)) {
-        Type keyType = Type::NONE;
-        Type valueType = Type::NONE;
-        for (auto& entry : dict->entries) {
-            Type kType = inferExprType(entry.first.get());
-            if (keyType == Type::NONE) {
-                keyType = kType;
-            } else if (entry.first->inferredType != keyType && entry.first->inferredType != Type::NONE) {
-                throw SemanticError(entry.first->getToken(), "All keys in a dictionary must have the same type");
-            }
-            Type vType = inferExprType(entry.second.get());
-            if (valueType == Type::NONE) {
-                valueType = vType;
-            } else if (entry.second->inferredType != valueType && entry.second->inferredType != Type::NONE) {
-                throw SemanticError(entry.second->getToken(), "All values in a dictionary must have the same type");
-            }
-        }
-        return Type::DICT;
     } else if (auto* index = dynamic_cast<IndexExpr*>(expr)) {
         Type baseType = inferExprType(index->base.get());
         Type indexType = inferExprType(index->index.get());
@@ -275,7 +271,6 @@ Type SemanticAnalyzer::inferExprType(Expr* expr) {
         }
         for (size_t i = 0; i < call->arguments.size(); ++i) {
             Type argType = inferExprType(call->arguments[i].get());
-            // For simplicity, we don't check parameter types here (parameters have Type::NONE)
         }
         return sym.returnType;
     } else if (auto* var = dynamic_cast<VariableExpr*>(expr)) {

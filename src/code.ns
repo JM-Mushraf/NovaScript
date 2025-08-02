@@ -1,5 +1,5 @@
-try
-    let a be 10
-catch error
-    say error
+let a be 10
+repeat while a<20
+    say a
+    set a to a+1
 end

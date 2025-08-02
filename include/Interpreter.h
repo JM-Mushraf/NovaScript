@@ -5,12 +5,21 @@
 #include "SymbolTable.h"
 #include <stdexcept>
 #include <unordered_map>
+#include <vector>
 #include <variant>
-
+#include <cstdint>
 namespace MyCustomLang {
 
-using Value = std::variant<std::monostate, int64_t, std::string, std::shared_ptr<FunctionDefStmt>>;
-
+using List = std::vector<Value>;
+using Dict = std::unordered_map<std::string, Value>;
+using Value = std::variant<
+    std::monostate, 
+    int64_t, 
+    std::string, 
+    std::shared_ptr<FunctionDefStmt>,
+    List,
+    Dict
+>;
 class Environment {
 private:
     std::vector<std::unordered_map<std::string, Value>> scopes;
